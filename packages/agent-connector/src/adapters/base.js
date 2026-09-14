@@ -904,6 +904,74 @@ class BaseAdapter {
   // Channel dispatch
   // ------------------------------------------------------------------
 
+  /**
+   * How a backlog that piled up while this channel was busy gets drained,
+   * per-agent via OPENAGENTS_QUEUE_DRAIN (same convention as every other
+   * agentEnv-based knob in this file — see modelLabel() above).
+   *
+   *   'none'           (default) — one queued message per model turn, in
+   *                     order. Unchanged behaviour; safe default.
+   *   'combine-sender' — every queued message from the SAME sender is
+   *                     merged into one turn (senders are still handled as
+   *                     separate turns, in the order their first message
+   *                     appears in the queue).
+   *   'combine-all'    — the entire backlog, every sender, becomes one turn.
+   *
+   * A burst of near-identical check-ins from one busy sender (the case that
+   * motivated this) used to cost one full model turn each, producing the
+   * same "already done" answer N times. 'combine-sender'/'combine-all' turn
+   * that into one turn that sees the whole backlog at once.
+   */
+  _queueDrainMode() {
+    const raw = String((this.agentEnv && this.agentEnv.OPENAGENTS_QUEUE_DRAIN) || '').trim().toLowerCase();
+    return raw === 'combine-sender' || raw === 'combine-all' ? raw : 'none';
+  }
+
+  /**
+   * Pull the next batch to process off `channel`'s queue, per drain mode.
+   * Mutates the queue in place. Returns [] when there is nothing left.
+   */
+  _takeDrainBatch(channel, mode) {
+    const queue = this._channelQueues[channel];
+    if (!queue || queue.length === 0) return [];
+    if (mode === 'combine-all') return queue.splice(0, queue.length);
+    if (mode === 'combine-sender') {
+      const sender = queue[0].senderName;
+      const batch = [];
+      // Walk back-to-front so each splice doesn't shift the indices still to
+      // visit; unshift keeps the extracted batch in original (oldest-first)
+      // order despite the reverse walk.
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].senderName === sender) batch.unshift(queue.splice(i, 1)[0]);
+      }
+      return batch;
+    }
+    return [queue.shift()];
+  }
+
+  /**
+   * Merge several queued messages into one synthetic message _handleMessage
+   * can process as a single turn. Only called for a batch of 2+ (a batch of
+   * exactly 1 is passed through as-is by the caller, byte-for-byte the same
+   * message 'none' mode would have produced).
+   *
+   * The newest message's metadata (sessionId, senderName, attachments-owner)
+   * becomes the synthetic message's identity; attachments from every message
+   * in the batch are kept, none dropped. Content is numbered and attributed
+   * per-sender so a mixed-sender batch doesn't read as one run-on message
+   * from whoever happens to be last.
+   */
+  _combineQueuedMessages(messages) {
+    const lines = messages.map((m, i) => `${i + 1}) [${m.senderName || m.senderType || 'unknown'}]: ${m.content || ''}`);
+    const primary = messages[messages.length - 1];
+    return {
+      ...primary,
+      content: `You were sent ${messages.length} messages while busy with the previous task, in order:\n\n${lines.join('\n\n')}`,
+      attachments: messages.flatMap((m) => m.attachments || []),
+      _queueId: messages.map((m) => m._queueId).filter(Boolean).join(','),
+    };
+  }
+
   async _dispatchMessage(msg) {
     // Use sessionId only if it looks like a channel, not an agent target
     let channel = this.channelName || 'general';
@@ -961,18 +1029,20 @@ class BaseAdapter {
 
     // Drain queue
     while (true) {
-      const queue = this._channelQueues[channel];
-      if (!queue || queue.length === 0) break;
-      const nextMsg = queue.shift();
-      if (nextMsg._queueId) {
-        try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
+      const batch = this._takeDrainBatch(channel, this._queueDrainMode());
+      if (batch.length === 0) break;
+      const nextMsg = batch.length > 1 ? this._combineQueuedMessages(batch) : batch[0];
+      const queueIds = batch.map((m) => m._queueId).filter(Boolean);
+      if (queueIds.length) {
+        const statusText = batch.length > 1 ? `processing ${batch.length} queued messages together` : 'processing queued message';
+        try { await this.sendStatus(channel, statusText, { queue_id: queueIds.join(','), queue_status: 'processed' }); } catch {}
       }
       try {
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
         await this._handleMessage(nextMsg);
       } catch (e) {
-        this._log(`Error processing queued message in ${channel}: ${e.message}`);
+        this._log(`Error processing queued message(s) in ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
     }
