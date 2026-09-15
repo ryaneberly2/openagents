@@ -6,6 +6,7 @@ import {
   LayoutGrid, List, ArrowDownWideNarrow, ListFilter, X,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -340,6 +341,24 @@ export function FileGrid() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('files.deleteFailed'));
     }
+  };
+
+  /**
+   * Row/tile click: normally opens the preview. Ctrl-click (Cmd-click on Mac)
+   * downloads the file directly instead — the standard browser convention for
+   * "give me this resource, don't navigate me to it," matching what these
+   * rows would do if they were plain `<a href>` elements rather than a
+   * click-handler-driven SPA navigation. Uses the same download route
+   * (`getFileUrl`, token-bearing) as the preview's own download button.
+   */
+  const handleFileRowClick = (e: React.MouseEvent, fileId: string) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      window.open(workspaceApi.getFileUrl(fileId), '_blank');
+      return;
+    }
+    setSelectedFileId(fileId);
+    if (isMobile) openMobileDetail();
   };
 
   // Drop zone handling — a drop needs a folder to land in, same as the upload
@@ -720,10 +739,7 @@ export function FileGrid() {
             return (
               <div
                 key={file.id}
-                onClick={() => {
-                  setSelectedFileId(file.id);
-                  if (isMobile) openMobileDetail();
-                }}
+                onClick={(e) => handleFileRowClick(e, file.id)}
                 className={cn(
                   'group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors',
                   isSelected
@@ -811,13 +827,11 @@ export function FileGrid() {
                       ? 'bg-primary/10 ring-2 ring-primary/30'
                       : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
                   )}
-                  onClick={() => {
-                    // Opening a file leaves the folder selection alone: the
-                    // file is already inside the current scope, so closing the
-                    // preview should land back on the same list.
-                    setSelectedFileId(file.id);
-                    if (isMobile) openMobileDetail();
-                  }}
+                  // Opening a file leaves the folder selection alone: the
+                  // file is already inside the current scope, so closing the
+                  // preview should land back on the same list. (Ctrl/Cmd-click
+                  // downloads instead of opening — see handleFileRowClick.)
+                  onClick={(e) => handleFileRowClick(e, file.id)}
                 >
                   {/* An image shows itself; everything else shows its type
                       tile. Both occupy this same 76px slot, so thumbnails

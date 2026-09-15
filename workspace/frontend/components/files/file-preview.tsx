@@ -76,7 +76,15 @@ function loadStrategyFor(kind: FileKind, contentType: string, filename: string):
     case 'video':
       return 'url';
     case 'web':
-      return isHtml(contentType, filename) ? 'url' : 'none';
+      // 'url' would point the iframe straight at the download route, which
+      // the backend deliberately serves as Content-Disposition: attachment
+      // for text/html (files.py INLINE_SAFE_CONTENT_TYPES) — the iframe
+      // navigation then gets treated as a download and never loads a
+      // document (white/blank preview, confirmed 2026-09-15). 'blob' fetches
+      // the bytes with fetch() first (disposition only affects browser
+      // navigation, not fetch) and hands the iframe a same-page blob: URL
+      // instead, exactly like the 'pdf' case below already does.
+      return isHtml(contentType, filename) ? 'blob' : 'none';
     default:
       return 'none';
   }
@@ -292,8 +300,8 @@ export function FilePreview() {
       .sort((a, b) => basename(a.filename).localeCompare(basename(b.filename)));
   }, [files, file, kind, filename]);
 
-  // Load whatever this kind needs — text into state, PDFs into a blob URL,
-  // media straight off the download route.
+  // Load whatever this kind needs — text into state, PDFs and HTML into a
+  // blob URL, media straight off the download route.
   useEffect(() => {
     setContent(null);
     setError(null);
@@ -327,8 +335,16 @@ export function FilePreview() {
         } else {
           const data = await res.blob();
           // Force the type: the browser only opens its PDF viewer when the
-          // blob says application/pdf, and uploads often arrive octet-stream.
-          objectUrl = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+          // blob says application/pdf (uploads often arrive octet-stream),
+          // and an HTML preview needs text/html to render as a document
+          // rather than downloading — same reason, per kind. A blob URL has
+          // no Content-Disposition, so this is also how an HTML preview gets
+          // past the backend's deliberate `attachment` for text/html (see
+          // files.py INLINE_SAFE_CONTENT_TYPES) without weakening it: the
+          // route still refuses to serve HTML inline to a bare browser
+          // request, this just isn't one.
+          const blobType = kind === 'web' ? 'text/html' : 'application/pdf';
+          objectUrl = URL.createObjectURL(new Blob([data], { type: blobType }));
           if (!cancelled) setBlobUrl(objectUrl);
         }
       })
@@ -455,14 +471,23 @@ export function FilePreview() {
 
       case 'web':
         if (isHtml(contentType, filename)) {
-          return (
+          // No allow-same-origin: this is untrusted, possibly agent-ingested
+          // HTML. A blob: URL created by this page inherits the WORKSPACE's
+          // real origin if the iframe is allowed to claim it — allow-scripts
+          // + allow-same-origin together is the standard sandbox-escape
+          // pattern (embedded script gets to run AND gets the real origin's
+          // cookies/localStorage/fetch credentials). Dropping allow-same-origin
+          // keeps the iframe's content on a unique opaque origin: scripts in
+          // the previewed HTML still run (charts, interactivity), but can't
+          // reach anything belonging to the actual workspace session.
+          return blobUrl ? (
             <iframe
-              src={sourceUrl}
+              src={blobUrl}
               title={basename(filename)}
               className="h-full w-full border-0 bg-white"
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts"
             />
-          );
+          ) : null;
         }
         return (
           <UnsupportedStage
@@ -596,7 +621,15 @@ export function FilePreview() {
                 variant="ghost"
                 mode="icon"
                 size="sm"
-                onClick={() => window.open(blobUrl || sourceUrl, '_blank')}
+                // HTML is the one 'web'/blob case that must NOT open its blob:
+                // URL here: a top-level window.open navigation can't be
+                // sandboxed the way the in-app <iframe> preview above is, so
+                // the blob would run with full access to the real workspace
+                // origin — the same escape this file's sandbox comment
+                // describes, just via a different door. sourceUrl (the
+                // backend's real attachment route) downloads it instead,
+                // same as the explicit download action already does.
+                onClick={() => window.open(kind === 'web' ? sourceUrl : (blobUrl || sourceUrl), '_blank')}
                 aria-label={t('files.openInNewTab')}
                 className="text-muted-foreground"
               >
