@@ -6,6 +6,7 @@ import { YumiGuide } from './yumi-guide';
 import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
 import { ThreadStatusBar } from './thread-status-bar';
+import { ThreadIdBadge } from './thread-id-badge';
 import { EmptyState } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
@@ -635,6 +636,7 @@ export function ChatView() {
               {currentSession?.title || t('header.untitledThread')}
             </h2>
           )}
+          {!isDM && currentSessionId && <ThreadIdBadge channelName={currentSessionId} />}
           {(() => {
             const participants = currentSession?.participants || [];
             const sessionAgents = agents.filter((a) => participants.includes(a.agentName));

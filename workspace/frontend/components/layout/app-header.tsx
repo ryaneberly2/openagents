@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
+import { ThreadIdBadge } from "@/components/chat/thread-id-badge"
 import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
@@ -222,7 +223,7 @@ export function AppHeader() {
       </h3>
     )
   } else if (viewMode === "threads" || viewMode === "routines") {
-    title = <ThreadTitle />
+    title = <><ThreadTitle /><ThreadIdBadge /></>
   } else if (viewMode === "files") {
     const name =
       files.find((f) => f.id === selectedFileId)?.filename || currentFilePath
