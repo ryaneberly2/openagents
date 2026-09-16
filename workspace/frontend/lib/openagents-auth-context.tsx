@@ -24,7 +24,12 @@ interface OpenAgentsAuthContextValue {
 // openagents://workspace/, so that is this app's own host there — the same way
 // workspace.openagents.org is on the web. Without it the desktop app would
 // decide it was a third-party deployment and show the marketing landing page.
-const OPENAGENTS_HOSTNAMES = ['workspace.openagents.org', 'localhost', 'workspace'];
+//
+// SELF-HOST: 'localhost' deliberately excluded. Upstream treats it as a hosted
+// domain, which turns on the Firebase/Google login gate; self-hosted
+// deployments run in workspace-token mode instead, where 'localhost' must be
+// treated as a plain third-party host for token links to work.
+const OPENAGENTS_HOSTNAMES = ['workspace.openagents.org', 'workspace'];
 
 const OpenAgentsAuthContext = createContext<OpenAgentsAuthContextValue | null>(null);
 
