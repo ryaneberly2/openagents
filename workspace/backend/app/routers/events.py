@@ -493,10 +493,20 @@ def poll_events(
             ),
         )
 
+    # An agent poll (target_agents set) that cannot be anchored used to degrade to
+    # "newest <limit> events" — a full REPLAY of every mention ever sent to that
+    # agent, which agn then executes. Two ways in: an `after` id the table does not
+    # know, and NO `after` at all (the launcher omits it whenever its start-time
+    # head fetch failed). Both now mean "nothing newer"; the response still
+    # carries the head as next_cursor, so the client re-anchors at the tip instead
+    # of replaying history (see the cross-agent cascade this caused on 2026-09-08).
+    after_unknown = bool(target_agents) and not after
     if after:
         cursor_row = db.execute(
             select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == after)
         ).one_or_none()
+        if cursor_row is None and target_agents:
+            after_unknown = True
         if cursor_row is not None:
             # Use (timestamp, id) tuple to avoid skipping/duplicating events with the same timestamp
             query = query.where(
@@ -612,7 +622,7 @@ def poll_events(
         query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
     else:
         query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
-    rows = db.execute(query).scalars().all()
+    rows = [] if after_unknown else db.execute(query).scalars().all()
 
     has_more = len(rows) > limit
     events = rows[:limit]
