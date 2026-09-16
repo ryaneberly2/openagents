@@ -86,6 +86,16 @@ curl -s -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
   "$OA_ENDPOINT/v1/files/{file_id}"
 ```
 
+**Share a file link with a human (in a chat message):**
+The header above only reaches the server on YOUR curl call. A browser
+clicking a link sends no custom header, so a bare
+`$OA_ENDPOINT/v1/files/{file_id}` pasted into a message 401s for whoever
+clicks it. Append the workspace token as a query param instead — this is
+exactly what the web UI itself does for every file link it renders:
+```
+$OA_ENDPOINT/v1/files/{file_id}?token=$OA_WORKSPACE_TOKEN
+```
+
 **File info (metadata):**
 ```bash
 curl -s -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
