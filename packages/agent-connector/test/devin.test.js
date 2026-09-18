@@ -96,6 +96,18 @@ async function handlePrompt(id, params) {
     ok(id, { stopReason: 'end_turn' });
     return;
   }
+  if (scenario === 'thought-burst') {
+    // Four thought chunks fired synchronously, one after another, with no
+    // await between them — the same shape a real fast token stream takes,
+    // and (before the fix) the shape that let overlapping un-awaited
+    // sendThinking() calls race and post out of order.
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'first' } });
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'second' } });
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'third' } });
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'fourth' } });
+    ok(id, { stopReason: 'end_turn' });
+    return;
+  }
   if (scenario === 'permission') {
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'rm -rf build/', kind: 'execute', status: 'pending' });
     const permReq = await request('session/request_permission', {
@@ -347,6 +359,23 @@ describe('DevinAdapter — initialize, session creation, first turn', () => {
     // Session id persisted for the channel.
     const saved = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
     assert.match(saved.thread, /^sess-\d+-1$/);
+  });
+
+  it('posts a burst of thought chunks in emission order, even when their sendThinking() calls settle out of order', async () => {
+    const a = makeAdapter({ scenario: 'thought-burst' });
+    // Deliberately reversed delays: the FIRST chunk emitted takes the
+    // LONGEST to post. Without AcpPeer's update-dispatch queue, this is
+    // exactly the shape that let a later, faster call post before an
+    // earlier, slower one — scrambling the order the channel displays them
+    // in (found 2026-09-18 from a real forge-2-devin channel screenshot).
+    const delayByText = { first: 30, second: 20, third: 10, fourth: 0 };
+    a.sendThinking = async (_c, t) => {
+      await new Promise((r) => setTimeout(r, delayByText[t] ?? 0));
+      a._captured.thinking.push(t);
+    };
+    await send(a, 'think out loud');
+
+    assert.deepEqual(a._captured.thinking, ['first', 'second', 'third', 'fourth']);
   });
 
   it('prepends the workspace briefing to a new session\'s first prompt, and does not re-send it on resume', async () => {

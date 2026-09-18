@@ -96,6 +96,19 @@ class AcpPeer {
     this.onPermissionRequest = null;
     /** Handler devin.js installs for every `session/update`. */
     this.onSessionUpdate = null;
+    /**
+     * onSessionUpdate is async (it awaits sendThinking/sendStatus/etc. per
+     * update) but _onMessage is called synchronously, once per parsed line,
+     * from the decoder — several session/update notifications arriving in
+     * one stdout chunk (a fast burst of thought/text deltas is the common
+     * case) would otherwise fire off overlapping un-awaited calls, and their
+     * network round-trips can then resolve out of order, posting the
+     * fragments to the channel scrambled relative to how Devin emitted them.
+     * Chaining onto this promise instead serializes them: each update's
+     * handler fully completes before the next one starts, regardless of how
+     * many arrived in the same tick.
+     */
+    this._updateChain = Promise.resolve();
 
     this._decoder = acp.createLineDecoder(
       (msg) => this._onMessage(msg),
@@ -143,7 +156,11 @@ class AcpPeer {
     }
     if (msg.method === 'session/update') {
       if (typeof this.onSessionUpdate === 'function') {
-        try { this.onSessionUpdate(msg.params); } catch (e) { this._log(`session/update handler threw: ${e.message}`); }
+        const handler = this.onSessionUpdate;
+        const params = msg.params;
+        this._updateChain = this._updateChain
+          .then(() => handler(params))
+          .catch((e) => { this._log(`session/update handler threw: ${e.message}`); });
       }
       return;
     }
@@ -1039,6 +1056,14 @@ class DevinAdapter extends BaseAdapter {
         return;
       }
       clearTimers();
+      // session/update notifications for this turn are earlier in the same
+      // ordered stdout stream than the session/prompt response we just
+      // received, but AcpPeer processes them through its own serialized
+      // queue (see AcpPeer's _updateChain) rather than inline — so the queue
+      // can still have work outstanding at this exact instant. Drain it
+      // before reading turn.buffer, or a straggler chunk (most often the
+      // tool_call case's narration flush) can be missed.
+      await peer._updateChain;
       peer.currentTurn = null;
 
       const stopReason = (response && response.stopReason) || 'end_turn';
