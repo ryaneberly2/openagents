@@ -670,7 +670,12 @@ class DevinAdapter extends BaseAdapter {
           turn.buffer.push({ messageId: u.messageId || null, text: u.text });
         }
         turn.postedAnything = true;
-        try { await this.sendThinking(channel, u.text); } catch {}
+        // Deliberately NOT streamed via sendThinking here, unlike
+        // agent_thought below: chunks still in the buffer at turn end ARE the
+        // answer, posted once via sendResponse — echoing them live too put
+        // every answer in the channel twice (once gray, once as the reply).
+        // Chunks a subsequent tool_call reveals to be mid-turn narration are
+        // flushed to thinking there instead (see the tool_call case).
         break;
       }
       case 'agent_thought': {
@@ -680,8 +685,15 @@ class DevinAdapter extends BaseAdapter {
         break;
       }
       case 'tool_call': {
-        turn.hasToolUseSinceLastText = true;
+        // Text buffered before this tool call was mid-turn narration, not the
+        // answer — it's discarded from the response buffer below, so flush it
+        // to the thinking stream now or it would never be shown at all.
+        const narrated = turn.buffer.map((b) => b.text).join('\n\n').trim();
         turn.buffer.length = 0;
+        turn.hasToolUseSinceLastText = true;
+        if (narrated) {
+          try { await this.sendThinking(channel, narrated); } catch {}
+        }
         turn.toolCalls[u.toolCallId] = u;
         turn.postedAnything = true;
         try { await this.sendStatus(channel, acp.toolCallLabel(u)); } catch {}

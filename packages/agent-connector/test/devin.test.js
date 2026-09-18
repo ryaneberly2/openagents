@@ -83,6 +83,8 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 async function handlePrompt(id, params) {
   sessionId = params.sessionId;
   if (scenario === 'success') {
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Reasoning about the request...' } });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Let me read that file first.' } });
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Reading file', kind: 'read', status: 'in_progress' });
     update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
     update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: 'msg-1', content: { type: 'text', text: 'Hello ' } });
@@ -324,8 +326,13 @@ describe('DevinAdapter — initialize, session creation, first turn', () => {
     const a = makeAdapter({ scenario: 'success' });
     await send(a, 'read the file and summarize it');
 
-    // Streaming happened before the final answer, not only at the end.
-    assert.ok(a._captured.thinking.length >= 2, 'expected streamed text chunks');
+    // Reasoning streams to the gray thinking channel, and mid-turn narration
+    // (answer-text a tool call then follows) is flushed there — but the
+    // trailing answer itself must NOT be duplicated into thinking: it posts
+    // exactly once, as the final response.
+    assert.ok(a._captured.thinking.some((t) => /Reasoning about the request/.test(t)), 'expected the thought chunk to stream');
+    assert.ok(a._captured.thinking.some((t) => /Let me read that file first/.test(t)), 'expected mid-turn narration in thinking');
+    assert.ok(!a._captured.thinking.some((t) => /Hello |from Devin/.test(t)), 'answer text must not be duplicated into the thinking stream');
     assert.ok(a._captured.status.some((s) => /Reading file/.test(s)), 'expected a tool_call status');
     assert.ok(a._captured.status.some((s) => /Do the thing/.test(s)), 'expected the plan to be posted');
 
@@ -416,7 +423,9 @@ describe('DevinAdapter — cancellation', () => {
     await a._onControlAction('stop', { channel: 'thread' });
     await turnPromise;
 
-    assert.ok(a._captured.thinking.some((t) => /Starting a long task/.test(t)));
+    // The partial answer text was buffered (not streamed) when the cancel
+    // landed — it must survive into the cancellation notice.
+    assert.ok(a._captured.response.some((r) => /Starting a long task/.test(r)), 'partial answer text should appear in the cancellation notice');
     assert.ok(
       a._captured.response.some((r) => /stopped|cancelled|cancel/i.test(r)),
       `expected a cancellation notice, got: ${JSON.stringify(a._captured.response)}`,
