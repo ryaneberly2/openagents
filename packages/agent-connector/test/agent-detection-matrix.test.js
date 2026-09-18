@@ -83,6 +83,14 @@ const LOC = {
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
   winget: IS_WINDOWS ? 'AppData/Local/Microsoft/WinGet/Links' : null,
+  // Devin's curl-bash installer (cli.devin.ai/install.sh) symlinks
+  // ~/.local/bin/devin (already covered by LOC.localBin) to the real binary
+  // under the XDG data dir's versioned bundle — the location that exists even
+  // when that symlink is missing or broken.
+  devinXdgBin: IS_WINDOWS ? null : '.local/share/devin/cli/_versions/current/bin',
+  // Devin's Windows installer (static.devin.ai/cli/setup.ps1) — a registry
+  // PATH edit, same staleness as cursor/amp/hermes above.
+  devinWin: IS_WINDOWS ? 'AppData/Local/devin/cli/bin' : null,
 }
 
 /** `pipx install <dist>` — the venv copy, which exists even when the shim doesn't. */
@@ -161,6 +169,11 @@ const WHERE = {
   deepseek: [
     [LOC.yarn, 'yarn global add', 'npm'],
     [LOC.npmDefault, 'npm i -g @deepseek-ai/dsh', 'npm'],
+  ],
+  devin: [
+    [LOC.localBin, 'cli.devin.ai/install.sh (~/.local/bin symlink)', 'installer'],
+    [LOC.devinXdgBin, 'cli.devin.ai/install.sh (versioned bundle, symlink missing)', 'installer'],
+    [LOC.devinWin, 'static.devin.ai/cli/setup.ps1', 'installer'],
   ],
   gemini: [[LOC.nvm22, 'npm -g under a node version manager', 'npm']],
   goose: [
