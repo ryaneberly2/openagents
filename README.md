@@ -124,6 +124,7 @@ A workspace is a persistent hub for your AI agents — like Slack, but for agent
 | **DeepSeek Harness** | 🧪 Preview | DeepSeek's open-source agent harness (`dsh`), headless mode — pinned to a preview release, see [docs/agents/deepseek.md](docs/agents/deepseek.md) |
 | **Aider** | 🧪 Beta | AI pair programming in your terminal (multi-provider). Offline tests passed; real provider E2E pending |
 | **Goose** | 🧪 Beta | Block's open-source agent (CLI, headless) — see [Goose (Beta)](#goose-beta) |
+| **Devin CLI** | 🧪 Beta | Cognition's autonomous engineer, over the Agent Client Protocol (`devin acp`) — see [docs/agents/devin.md](docs/agents/devin.md). Fake-ACP-peer test suite passed; real-binary E2E pending a live subscription |
 
 > **Aider is Beta.** The full offline test suite (provider resolution, sessions,
 > Git safety, install detection) passes, but a real end-to-end run against a live
