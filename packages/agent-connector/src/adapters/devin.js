@@ -31,7 +31,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -226,6 +228,84 @@ class DevinAdapter extends BaseAdapter {
     );
     this._loadSessions();
     this._devinBin = null;
+    // Populated best-effort by _refreshAvailableModels() (see run()); null
+    // until that resolves (or forever, if it never can — e.g. not yet
+    // authenticated), meaning "unknown, don't warn" everywhere it's read.
+    this._availableModels = null;
+    this._warnedUnknownModels = new Set();
+  }
+
+  /**
+   * Kick off the live model-catalog fetch CONCURRENTLY with join/skill-sync/
+   * poll-loop startup (base.js's run()) rather than blocking any of it — an
+   * account lookup that's slow, or fails outright because auth hasn't
+   * happened yet, must never delay this agent coming online.
+   */
+  async run() {
+    this._refreshAvailableModels().catch(() => {});
+    return super.run();
+  }
+
+  /**
+   * Best-effort live lookup of this account's real model catalog
+   * (`devin models list --format json`), so a configured `DEVIN_MODEL` / the
+   * workspace's model picker can be checked against reality instead of only
+   * the small, hand-curated, necessarily-stale list baked into
+   * registry.json's `models` (Devin's actual catalog is account/plan-specific
+   * and has 40+ families). Never throws — an unauthenticated account, a
+   * network hiccup, or a `devin` version with a different output shape all
+   * just leave `_availableModels` null, and every reader treats null as
+   * "unknown, don't warn" rather than "empty, warn about everything."
+   *
+   * Uses the ASYNC child_process API (execFile, not execFileSync)
+   * deliberately: this call hits Devin's own API over the network (see
+   * `devin auth status`'s "API server" field) and can take a real amount of
+   * time. execFileSync would block this whole process's event loop for that
+   * entire duration — including every other channel's in-flight ACP turn —
+   * which is exactly the "never blocks startup" guarantee run() promises.
+   */
+  async _refreshAvailableModels() {
+    const bin = this._findDevinBinary();
+    if (!bin) return;
+    // Same test-double handling as _ensurePeer's spawn: a `.js`/`.mjs`
+    // resolution (devin.test.js's fake binary) needs to run through node.
+    const execBin = /\.(m?js)$/i.test(bin) ? process.execPath : bin;
+    const execArgs = /\.(m?js)$/i.test(bin)
+      ? [bin, 'models', 'list', '--format', 'json']
+      : ['models', 'list', '--format', 'json'];
+    try {
+      const { stdout: raw } = await execFileAsync(execBin, execArgs, {
+        encoding: 'utf-8',
+        timeout: 15000,
+        windowsHide: true,
+        env: { ...(this.agentEnv || process.env) },
+      });
+      const parsed = JSON.parse(raw);
+      const { ids, families } = acp.flattenModelsCatalog(parsed);
+      this._availableModels = ids;
+      const variantTotal = families.reduce((n, f) => n + f.variantCount, 0);
+      this._log(`Devin: fetched ${families.length} model families (${variantTotal} variants) for this account`);
+    } catch (e) {
+      // Expected, non-fatal states: not signed in yet, no network, a `devin`
+      // version whose JSON shape changed. The loud, actionable "not signed
+      // in" message already comes from the readiness/auth path — this stays
+      // quiet and simply leaves model validation off.
+      this._log(`Devin: could not fetch live model list (${e.message}) — model validation stays advisory-only`);
+    }
+  }
+
+  /**
+   * Warn (once per distinct value) when a configured model isn't in the live
+   * catalog. Advisory only: Devin's own `--model` does fuzzy matching, so a
+   * value absent from this fetch may still resolve — this exists to catch a
+   * plain typo, not to gatekeep.
+   */
+  _checkConfiguredModel(model) {
+    if (!model || !this._availableModels) return;
+    const key = String(model).toLowerCase();
+    if (this._availableModels.has(key) || this._warnedUnknownModels.has(key)) return;
+    this._warnedUnknownModels.add(key);
+    this._log(`Devin: configured model "${model}" isn't in this account's live catalog — Devin's own fuzzy matching may still resolve it, but double-check for a typo (see \`devin models list\`)`);
   }
 
   // ------------------------------------------------------------------
@@ -410,7 +490,9 @@ class DevinAdapter extends BaseAdapter {
     }
 
     const mode = acp.normalizePermissionMode(this._permissionMode());
-    const args = acp.buildDevinAcpArgs({ model: this.modelLabel(), autonomous: mode === 'autonomous' });
+    const configuredModel = this.modelLabel();
+    this._checkConfiguredModel(configuredModel);
+    const args = acp.buildDevinAcpArgs({ model: configuredModel, autonomous: mode === 'autonomous' });
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     try { fs.mkdirSync(workDir, { recursive: true }); } catch {}
 

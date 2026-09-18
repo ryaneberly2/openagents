@@ -30,6 +30,27 @@ const FAKE_PEER_SCRIPT = `
 'use strict';
 const fs = require('fs');
 
+// _refreshAvailableModels() invokes the SAME fake binary with
+// ['models', 'list', '--format', 'json'] rather than ['acp'] — branch here,
+// before any of the ACP stdin/stdout wiring below, and exit immediately.
+if (process.argv.includes('models') && process.argv.includes('list')) {
+  if (process.env.FAKE_MODELS_FAIL === '1') {
+    process.stderr.write('not logged in\\n');
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify({
+    families: [
+      { family_label: 'Claude Opus 5', family_uid: 'claude-opus-5', slug: 'claude-opus-5',
+        aliases: ['opus'],
+        variants: [{ model_uid: 'claude-opus-5-medium', label: 'Claude Opus 5 Medium' }] },
+      { family_label: 'Claude Sonnet 5', family_uid: 'claude-sonnet-5', slug: 'claude-sonnet-5',
+        aliases: ['claude', 'sonnet'],
+        variants: [{ model_uid: 'claude-sonnet-5-medium', label: 'Claude Sonnet 5 Medium' }] },
+    ],
+  }));
+  process.exit(0);
+}
+
 let buf = '';
 let sessionCounter = 0;
 let authenticated = process.env.FAKE_PRE_AUTHED === '1';
@@ -247,6 +268,7 @@ function makeAdapter(extra = {}) {
     channelName: 'thread',
     token: 'token',
     agentName: 'devin-bot',
+    agentType: 'devin',
     endpoint: 'https://example.invalid',
     agentEnv: {
       ...(extra.agentEnv || {}),
@@ -460,5 +482,54 @@ describe('DevinAdapter — redaction', () => {
     const everything = JSON.stringify({ ...a._captured });
     assert.ok(!everything.includes('sk-supersecretvalue1234567890abcdefg'), 'API key leaked into a log/status/response');
     assert.ok(!everything.includes('workspace-token-abc123-should-not-leak-anywhere-visible'), 'workspace token leaked');
+  });
+});
+
+describe('DevinAdapter — live model catalog', () => {
+  it('run() fetches the account model list without blocking startup, and _ensurePeer validates against it', async () => {
+    const a = makeAdapter({ scenario: 'success' });
+    // run() itself joins/polls the (fake) workspace forever, so don't await
+    // it — just confirm the fire-and-forget fetch it kicks off completes and
+    // populates _availableModels.
+    a.client.joinNetwork = async () => ({ session_id: 's1' });
+    a.client.getAgents = async () => [];
+    a.client.getHeadEventId = async () => 'h1';
+    a.client.pollPending = async () => ({ messages: [], cursor: null, composing: false });
+    a.client.heartbeat = async () => {};
+    a.client.pollControl = async () => [];
+    a.client.disconnect = async () => {};
+    const runPromise = a.run();
+    await new Promise((resolve) => {
+      const check = () => (a._availableModels ? resolve() : setTimeout(check, 20));
+      check();
+    });
+    assert.ok(a._availableModels.has('claude-opus-5-medium'));
+    assert.ok(a._availableModels.has('opus'));
+    assert.ok(a._availableModels.has('claude-sonnet-5'), 'family slug/uid must be included, not just variants');
+    assert.ok(a._captured.logs.some((l) => /fetched 2 model families \(2 variants\)/.test(l)));
+
+    a.agentEnv = { ...a.agentEnv, DEVIN_MODEL: 'this-model-does-not-exist' };
+    await send(a, 'hello');
+    assert.ok(
+      a._captured.logs.some((l) => l.includes('configured model "this-model-does-not-exist" isn\'t in this account\'s live catalog')),
+      'expected an advisory warning for an unrecognized configured model',
+    );
+
+    a.stop();
+    await runPromise.catch(() => {});
+  });
+
+  it('a fetch failure (not authenticated) leaves _availableModels null and never warns', async () => {
+    const a = makeAdapter({ scenario: 'success', env: { FAKE_MODELS_FAIL: '1' } });
+    await a._refreshAvailableModels();
+    assert.equal(a._availableModels, null);
+    assert.ok(a._captured.logs.some((l) => l.includes('could not fetch live model list')));
+
+    a.agentEnv = { ...a.agentEnv, DEVIN_MODEL: 'anything-at-all' };
+    await send(a, 'hello');
+    assert.ok(
+      !a._captured.logs.some((l) => l.includes('isn\'t in this account\'s live catalog')),
+      'must not warn when the catalog itself is unknown (null), only when it was fetched and the model is absent',
+    );
   });
 });

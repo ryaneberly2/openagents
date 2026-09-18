@@ -417,6 +417,51 @@ function parseDevinVersion(raw) {
 }
 
 // ---------------------------------------------------------------------------
+// Live model catalog (`devin models list --format json`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Flatten `devin models list --format json`'s `{ families: [...] }' into a
+ * lowercase Set of every identifier Devin's `--model` would accept for THIS
+ * account: each variant's `model_uid`, each family's `slug`/`family_uid`, and
+ * every alias (e.g. `opus`). Devin resolves `--model` by fuzzy match against
+ * all of these (per `devin --help`), so this Set is deliberately permissive —
+ * it exists to catch an operator's plain typo, not to gatekeep Devin's own
+ * real matching, which may still accept something not in this Set (a partial
+ * match, a model added after this Set was fetched, etc).
+ *
+ * Never throws: malformed/unexpected input just yields an empty result, so a
+ * future Devin CLI response-shape change degrades to "no validation" rather
+ * than crashing the adapter that calls this at startup.
+ *
+ * @param {unknown} parsed - already-JSON.parse'd `devin models list --format json` output
+ * @returns {{ ids: Set<string>, families: Array<{label: string, variantCount: number}> }}
+ */
+function flattenModelsCatalog(parsed) {
+  const ids = new Set();
+  const families = [];
+  const rawFamilies = (parsed && typeof parsed === 'object' && Array.isArray(parsed.families))
+    ? parsed.families : [];
+  for (const fam of rawFamilies) {
+    if (!fam || typeof fam !== 'object') continue;
+    const variants = Array.isArray(fam.variants) ? fam.variants : [];
+    for (const v of variants) {
+      if (v && v.model_uid) ids.add(String(v.model_uid).toLowerCase());
+    }
+    if (fam.slug) ids.add(String(fam.slug).toLowerCase());
+    if (fam.family_uid) ids.add(String(fam.family_uid).toLowerCase());
+    for (const alias of (Array.isArray(fam.aliases) ? fam.aliases : [])) {
+      if (alias) ids.add(String(alias).toLowerCase());
+    }
+    families.push({
+      label: fam.family_label || fam.family_uid || fam.slug || 'unknown',
+      variantCount: variants.length,
+    });
+  }
+  return { ids, families };
+}
+
+// ---------------------------------------------------------------------------
 // Redaction (re-exported for callers that only need devin-acp.js)
 // ---------------------------------------------------------------------------
 
@@ -456,4 +501,5 @@ module.exports = {
   buildDevinAcpArgs,
   parseDevinVersion,
   redactFrameForLog,
+  flattenModelsCatalog,
 };

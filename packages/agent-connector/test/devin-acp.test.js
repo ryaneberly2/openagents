@@ -266,3 +266,65 @@ describe('devin-acp — redaction', () => {
     assert.ok(out.length <= 51);
   });
 });
+
+describe('devin-acp — live model catalog', () => {
+  // Fixture shape matches a real `devin models list --format json` response
+  // (captured against a live, authenticated Devin Pro account, 2026-09-18),
+  // trimmed to two families.
+  const FIXTURE = {
+    families: [
+      {
+        family_label: 'Claude Opus 5',
+        family_uid: 'claude-opus-5',
+        slug: 'claude-opus-5',
+        aliases: ['opus'],
+        variants: [
+          { model_uid: 'claude-opus-5-medium', label: 'Claude Opus 5 Medium' },
+          { model_uid: 'claude-opus-5-high', label: 'Claude Opus 5 High' },
+        ],
+      },
+      {
+        family_label: 'Claude Sonnet 5',
+        family_uid: 'claude-sonnet-5',
+        slug: 'claude-sonnet-5',
+        aliases: ['claude', 'sonnet'],
+        variants: [
+          { model_uid: 'claude-sonnet-5-medium', label: 'Claude Sonnet 5 Medium' },
+        ],
+      },
+    ],
+  };
+
+  it('collects every variant id, family slug/uid, and alias, lowercased', () => {
+    const { ids } = acp.flattenModelsCatalog(FIXTURE);
+    for (const expected of [
+      'claude-opus-5-medium', 'claude-opus-5-high', 'opus',
+      'claude-sonnet-5-medium', 'claude', 'sonnet', 'claude-sonnet-5',
+    ]) {
+      assert.ok(ids.has(expected), `expected "${expected}" in the flattened id set`);
+    }
+    assert.ok(!ids.has('gpt-6-astra'), 'must not invent ids absent from the fixture');
+  });
+
+  it('is case-insensitive by construction (ids are stored lowercase)', () => {
+    const { ids } = acp.flattenModelsCatalog(FIXTURE);
+    assert.ok(ids.has('opus'));
+    assert.ok(!ids.has('Opus'), 'callers are expected to lowercase before checking membership');
+  });
+
+  it('reports family labels and variant counts for logging', () => {
+    const { families } = acp.flattenModelsCatalog(FIXTURE);
+    assert.equal(families.length, 2);
+    assert.equal(families[0].label, 'Claude Opus 5');
+    assert.equal(families[0].variantCount, 2);
+    assert.equal(families[1].variantCount, 1);
+  });
+
+  it('degrades to empty, never throws, on malformed input', () => {
+    for (const bad of [null, undefined, {}, { families: null }, { families: 'nope' }, 'a string', 42]) {
+      const { ids, families } = acp.flattenModelsCatalog(bad);
+      assert.equal(ids.size, 0);
+      assert.deepEqual(families, []);
+    }
+  });
+});
