@@ -447,6 +447,69 @@ class Installer {
     return null;
   }
 
+  /**
+   * Confirm a real `devin` binary landed, for verify-before-mark.
+   *
+   * Devin's own install scripts (`curl -fsSL https://cli.devin.ai/install.sh |
+   * bash` on macOS/Linux, `irm https://static.devin.ai/cli/setup.ps1 | iex` on
+   * Windows) download and extract a versioned bundle before symlinking/copying
+   * the entry binary into place — a network failure partway through a shell
+   * pipeline can exit non-zero and already be caught by `_execShell`, but a
+   * script that degrades to a non-fatal warning and still exits 0 (the exact
+   * defect already seen in cursor/amp/hermes's installers) would otherwise mark
+   * Devin installed with no runnable binary anywhere. Mirrors those checks.
+   *
+   * Captures the version via `devin version` (documented equivalent of
+   * `devin --version`) — best-effort, never fails the check by itself.
+   */
+  _verifyDevinBinary() {
+    try { clearBinaryLookupCache(); } catch {}
+    const isWin = process.platform === 'win32';
+    const home = os.homedir();
+    const candidates = [];
+    const resolved = this._whichBinary('devin');
+    if (resolved) candidates.push(resolved);
+    if (isWin) {
+      const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+      candidates.push(path.join(localAppData, 'devin', 'cli', 'bin', 'devin.exe'));
+    } else {
+      candidates.push(path.join(home, '.local', 'bin', 'devin'));
+      const xdgData = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+      candidates.push(path.join(xdgData, 'devin', 'cli', '_versions', 'current', 'bin', 'devin'));
+    }
+    let found = null;
+    for (const c of candidates) {
+      try { if (c && fs.existsSync(c)) { found = c; break; } } catch {}
+    }
+    if (!found) return null;
+
+    let version = null;
+    try {
+      version = execSync(`"${found}" version`, {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 8000,
+        env: getEnhancedEnv(),
+        windowsHide: true,
+        encoding: 'utf-8',
+      }).trim() || null;
+    } catch {
+      // Best-effort only — file existence above is the hard condition.
+    }
+    return { path: found, version };
+  }
+
+  _devinBinaryNotFoundMessage() {
+    const isWin = process.platform === 'win32';
+    const home = os.homedir();
+    const expected = isWin
+      ? path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'devin', 'cli', 'bin', 'devin.exe')
+      : path.join(home, '.local', 'bin', 'devin');
+    return (
+      'Devin install command completed, but the Devin CLI binary could not be found.\n\n' +
+      `Expected path:\n${expected}`
+    );
+  }
+
   _cursorBinaryNotFoundMessage() {
     const localAppData =
       process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
@@ -1091,6 +1154,19 @@ class Installer {
       };
     }
 
+    // Devin-only: same verify-before-mark defense as aider/amp above.
+    if (agentType === 'devin') {
+      const devin = this._verifyDevinBinary();
+      if (!devin) {
+        throw new Error(this._devinBinaryNotFoundMessage());
+      }
+      this._markInstalled(agentType);
+      return {
+        success: true,
+        output: `${output}\nDevin CLI resolved: ${devin.path}${devin.version ? ` (${devin.version})` : ''}`,
+      };
+    }
+
     this._markInstalled(agentType);
     return { success: true, output };
   }
@@ -1320,6 +1396,17 @@ class Installer {
               return;
             }
             if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);
+          }
+          // Devin-only: same verify-before-mark defense as aider/amp/cursor/hermes.
+          if (agentType === 'devin') {
+            const devin = this._verifyDevinBinary();
+            if (!devin) {
+              const msg = this._devinBinaryNotFoundMessage();
+              if (onData) onData(`\n${msg}\n`);
+              reject(new Error(msg));
+              return;
+            }
+            if (onData) onData(`\nDevin CLI resolved: ${devin.path}${devin.version ? ` (${devin.version})` : ''}\n`);
           }
           this._markInstalled(agentType);
           if (onData) onData(`\nDone! ${agentType} is now installed.\n`);

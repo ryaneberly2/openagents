@@ -153,6 +153,32 @@ function classifySpawnError(err, opts) {
   };
 }
 
+/**
+ * Classify a Devin ACP JSON-RPC error into readiness terms.
+ *
+ * The ACP spec reserves -32000 for "Authentication required"
+ * (https://github.com/agentclientprotocol/agent-client-protocol — ErrorCode).
+ * Devin's ACP server returns it from `session/new` (and can from other
+ * methods) when it has no usable credential — meaning the binary IS
+ * installed and DID start, it just isn't signed in. Distinguishing that from
+ * a spawn/runtime failure is exactly the "installed but not signed in" vs
+ * "not installed" distinction this module exists to keep consistent (see file
+ * header) — an ACP auth error must never be reported as REASON.NOT_INSTALLED
+ * or REASON.RUNTIME_MISSING.
+ *
+ * @param {{ code?: number, message?: string }|Error|null} err
+ * @returns {{ isAuthError: boolean, reason: string|null, message: string|null }}
+ */
+function classifyAcpAuthError(err) {
+  const code = err && (err.code != null ? err.code : err.acpCode);
+  if (code !== -32000) return { isAuthError: false, reason: null, message: null };
+  return {
+    isAuthError: true,
+    reason: REASON.LOGIN_REQUIRED,
+    message: 'Devin is installed but not signed in — run `devin auth login`, or set WINDSURF_API_KEY / DEVIN_API_KEY for this agent.',
+  };
+}
+
 module.exports = {
   REASON,
   isErrorReason,
@@ -163,4 +189,5 @@ module.exports = {
   classifyJoinError,
   classifyHeartbeatError,
   classifySpawnError,
+  classifyAcpAuthError,
 };

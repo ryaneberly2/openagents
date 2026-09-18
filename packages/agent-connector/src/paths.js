@@ -445,6 +445,14 @@ function _addAgentInstallerPaths(dirs) {
   _push(dirs, path.join(HOME, '.npm-global', 'bin'));
   _push(dirs, path.join(HOME, '.openagents', 'npm-global', 'bin'));
 
+  // devin — `curl -fsSL https://cli.devin.ai/install.sh | bash` symlinks the
+  // real binary into ~/.local/bin (already covered by the universal rule
+  // above), but the versioned bundle it points at lives under
+  // XDG_DATA_HOME/devin/cli/_versions/<version>/bin — add the `current`
+  // symlink's bin dir explicitly in case the ~/.local/bin symlink is missing
+  // or broken (verified against the real install.sh at cli.devin.ai).
+  _push(dirs, path.join(process.env.XDG_DATA_HOME || path.join(HOME, '.local', 'share'), 'devin', 'cli', '_versions', 'current', 'bin'));
+
   // codebuddy — the npm package drops the usual global shim, but CodeBuddy also
   // ships a native build (the engine behind the WorkBuddy desktop app) that
   // installs to its own directory. The codebuddy adapter has always searched
@@ -513,6 +521,12 @@ function _addAgentInstallerPaths(dirs) {
     _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
     // codebuddy's native Windows install.
     _push(dirs, path.join(lad, 'CodeBuddy', 'bin'));
+    // devin — `irm https://static.devin.ai/cli/setup.ps1 | iex` installs to
+    // %LOCALAPPDATA%\devin\cli\bin\devin.exe and edits the user PATH registry
+    // key, which an already-running daemon never sees until restarted — same
+    // staleness as Cursor/Amp/Hermes above (verified against the real
+    // setup.ps1 at static.devin.ai).
+    _push(dirs, path.join(lad, 'devin', 'cli', 'bin'));
     // winget's shim dir — how GitHub Copilot CLI arrives on Windows for anyone
     // who didn't take the npm route. The copilot adapter knew it; nothing else did.
     _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));

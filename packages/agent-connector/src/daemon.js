@@ -1296,6 +1296,7 @@ async _runNodeCommand(n, cmd) {
       const knownBinaries = {
         openclaw: 'openclaw', claude: 'claude', codex: 'codex',
         aider: 'aider', goose: 'goose', gemini: 'gemini',
+        devin: 'devin',
       };
       binary = knownBinaries[agentCfg.type];
     }

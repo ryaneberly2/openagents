@@ -26,6 +26,7 @@ const AntigravityAdapter = require('./antigravity');
 const CommandCodeAdapter = require('./commandcode');
 const OpenWorkerAdapter = require('./openworker');
 const CodeBuddyAdapter = require('./codebuddy');
+const DevinAdapter = require('./devin');
 
 const ADAPTER_MAP = {
   openclaw: OpenClawAdapter,
@@ -49,11 +50,12 @@ const ADAPTER_MAP = {
   commandcode: CommandCodeAdapter,
   openworker: OpenWorkerAdapter,
   codebuddy: CodeBuddyAdapter,
+  devin: DevinAdapter,
 };
 
 /**
  * Create an adapter instance for the given agent type.
- * @param {string} type - Agent type (openclaw, claude, codex, opencode, nanoclaw, cursor, hermes, gemini, kimi, aider, goose, copilot, cline, amp, mini-swe-agent, pi, deepseek, antigravity, commandcode, openworker, codebuddy)
+ * @param {string} type - Agent type (openclaw, claude, codex, opencode, nanoclaw, cursor, hermes, gemini, kimi, aider, goose, copilot, cline, amp, mini-swe-agent, pi, deepseek, antigravity, commandcode, openworker, codebuddy, devin)
  * @param {object} opts - Adapter constructor options
  * @returns {BaseAdapter}
  */
@@ -87,6 +89,7 @@ module.exports = {
   AntigravityAdapter,
   CommandCodeAdapter,
   OpenWorkerAdapter,
+  DevinAdapter,
   createAdapter,
   ADAPTER_MAP,
 };
