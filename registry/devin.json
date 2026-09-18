@@ -1,0 +1,75 @@
+{
+  "name": "devin",
+  "label": "Devin CLI",
+  "description": "Cognition's autonomous software engineer, run headless over the Agent Client Protocol (ACP)",
+  "homepage": "https://devin.ai/cli",
+  "tags": [
+    "coding",
+    "cli",
+    "autonomous",
+    "acp"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "devin"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "devin",
+    "macos": "curl -fsSL https://cli.devin.ai/install.sh | bash",
+    "linux": "curl -fsSL https://cli.devin.ai/install.sh | bash",
+    "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"irm https://static.devin.ai/cli/setup.ps1 | iex\""
+  },
+  "uninstall": null,
+  "adapter": {
+    "module": "openagents.adapters.devin",
+    "class": "DevinAdapter"
+  },
+  "launch": {
+    "args": [
+      "acp"
+    ]
+  },
+  "check_ready": {
+    "status_command": "devin auth status",
+    "login_command": "devin auth login",
+    "not_ready_message": "Devin is installed but not signed in — run: devin auth login (or set WINDSURF_API_KEY / DEVIN_API_KEY for this agent)",
+    "env_vars": [
+      "WINDSURF_API_KEY",
+      "DEVIN_API_KEY"
+    ]
+  },
+  "env_config": [
+    {
+      "name": "WINDSURF_API_KEY",
+      "description": "API key Devin's ACP server reads automatically (leave blank if you have run `devin auth login` on this machine)",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "DEVIN_API_KEY",
+      "description": "Alternate API key variable this agent also checks for the ACP `authenticate` fallback",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "DEVIN_MODEL",
+      "description": "Model id passed to `devin acp --model` (leave blank for Devin's own default; fuzzy names like \"opus\" are accepted)",
+      "required": false
+    },
+    {
+      "name": "DEVIN_PERMISSION_MODE",
+      "description": "How this agent auto-answers Devin's ACP permission requests (nobody is attached to approve them interactively): smart (default — approves once, never remembers, and narrates riskier approvals to the channel), accept-edits (auto-approves file edits, narrates everything else), dangerous/yolo/bypass (approves everything silently), autonomous (like bypass, and also passes --sandbox)",
+      "required": false
+    }
+  ],
+  "models": [],
+  "vendor": "Cognition",
+  "tagline": "The autonomous software engineer, in your workspace."
+}
