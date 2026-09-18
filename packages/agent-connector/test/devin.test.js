@@ -96,15 +96,27 @@ async function handlePrompt(id, params) {
     ok(id, { stopReason: 'end_turn' });
     return;
   }
+  if (scenario === 'status-burst') {
+    // Four distinct tool calls fired synchronously, one after another, with
+    // no await between them — the same shape a real fast tool-call stream
+    // takes, and (before the dispatch-ordering fix) the shape that let
+    // overlapping un-awaited sendStatus() calls race and post out of order.
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'first', title: 'first-tool', kind: 'execute', status: 'in_progress' });
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'second', title: 'second-tool', kind: 'execute', status: 'in_progress' });
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'third', title: 'third-tool', kind: 'execute', status: 'in_progress' });
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'fourth', title: 'fourth-tool', kind: 'execute', status: 'in_progress' });
+    ok(id, { stopReason: 'end_turn' });
+    return;
+  }
   if (scenario === 'thought-burst') {
-    // Four thought chunks fired synchronously, one after another, with no
-    // await between them — the same shape a real fast token stream takes,
-    // and (before the fix) the shape that let overlapping un-awaited
-    // sendThinking() calls race and post out of order.
-    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'first' } });
-    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'second' } });
-    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'third' } });
-    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'fourth' } });
+    // A burst of thought deltas: two share a messageId (word/token-level
+    // pieces of ONE thought) and two more arrive as separate thoughts (no
+    // messageId) — all with no await between them, then the turn ends with
+    // no intervening tool_call/text/plan to trigger an earlier flush.
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Check' }, messageId: 'th-1' });
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'ing the ' }, messageId: 'th-1' });
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'build.' }, messageId: 'th-1' });
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Looks clean.' } });
     ok(id, { stopReason: 'end_turn' });
     return;
   }
@@ -361,21 +373,38 @@ describe('DevinAdapter — initialize, session creation, first turn', () => {
     assert.match(saved.thread, /^sess-\d+-1$/);
   });
 
-  it('posts a burst of thought chunks in emission order, even when their sendThinking() calls settle out of order', async () => {
-    const a = makeAdapter({ scenario: 'thought-burst' });
-    // Deliberately reversed delays: the FIRST chunk emitted takes the
+  it('posts a burst of tool-call statuses in emission order, even when their sendStatus() calls settle out of order', async () => {
+    const a = makeAdapter({ scenario: 'status-burst' });
+    // Deliberately reversed delays: the FIRST status emitted takes the
     // LONGEST to post. Without AcpPeer's update-dispatch queue, this is
     // exactly the shape that let a later, faster call post before an
     // earlier, slower one — scrambling the order the channel displays them
-    // in (found 2026-09-18 from a real forge-2-devin channel screenshot).
-    const delayByText = { first: 30, second: 20, third: 10, fourth: 0 };
-    a.sendThinking = async (_c, t) => {
-      await new Promise((r) => setTimeout(r, delayByText[t] ?? 0));
-      a._captured.thinking.push(t);
+    // in (the same class of bug found 2026-09-18 from a real forge-2-devin
+    // channel screenshot, there manifesting as scrambled thought chunks).
+    const delayByLabel = { 'first-tool': 30, 'second-tool': 20, 'third-tool': 10, 'fourth-tool': 0 };
+    a.sendStatus = async (_c, t) => {
+      const label = Object.keys(delayByLabel).find((l) => t.includes(l));
+      await new Promise((r) => setTimeout(r, delayByLabel[label] ?? 0));
+      a._captured.status.push(t);
     };
-    await send(a, 'think out loud');
+    await send(a, 'run four things');
 
-    assert.deepEqual(a._captured.thinking, ['first', 'second', 'third', 'fourth']);
+    const toolLabels = a._captured.status
+      .map((s) => Object.keys(delayByLabel).find((l) => s.includes(l)))
+      .filter(Boolean);
+    assert.deepEqual(toolLabels, ['first-tool', 'second-tool', 'third-tool', 'fourth-tool']);
+  });
+
+  it('buffers thought chunks and flushes them as one message, concatenated correctly, at turn end', async () => {
+    const a = makeAdapter({ scenario: 'thought-burst' });
+    await send(a, 'check the build');
+
+    // Same-messageId deltas concatenate directly (no separator); the
+    // separate, message-id-less thought joins with a blank line — the exact
+    // agent_text discipline, now applied to agent_thought too. One post
+    // total, not four (found 2026-09-18: unbuffered, this was a wall of
+    // one-word "thinking" messages in real forge/forge-2-devin channels).
+    assert.deepEqual(a._captured.thinking, ['Checking the build.\n\nLooks clean.']);
   });
 
   it('prepends the workspace briefing to a new session\'s first prompt, and does not re-send it on resume', async () => {

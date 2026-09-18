@@ -598,7 +598,7 @@ class DevinAdapter extends BaseAdapter {
         // The agent replays the whole conversation as session/update
         // notifications before responding to session/load — the channel
         // already has that history, so suppress re-posting it.
-        peer.currentTurn = { channel, replaying: true, buffer: [], toolCalls: {}, postedAnything: true };
+        peer.currentTurn = { channel, replaying: true, buffer: [], thoughtBuffer: [], toolCalls: {}, postedAnything: true };
         await peer.request(
           (id) => acp.buildLoadSessionRequest(id, { sessionId: existingSessionId, cwd: workDir, mcpServers }),
           SESSION_SETUP_TIMEOUT_MS,
@@ -661,6 +661,26 @@ class DevinAdapter extends BaseAdapter {
     if (peer.currentTurn) peer.currentTurn.lastActivityAt = Date.now();
   }
 
+  /**
+   * Post whatever thought text is buffered as ONE sendThinking call, joining
+   * separate thought messages (distinct messageIds, or none) with a blank
+   * line — the same join agent_text uses for turn.buffer at its own flush
+   * points. Without this, every agent_thought_chunk posts individually
+   * (found 2026-09-18 in real forge/forge-2-devin channels: a wall of
+   * one-word "thinking" messages, e.g. "Block" / "er" / "resolved" / "."),
+   * for the exact reason the agent_text case's own comment already explains
+   * for that buffer: word/token-level deltas need concatenating, not one
+   * post per token.
+   */
+  async _flushThought(channel, turn) {
+    if (!turn.thoughtBuffer.length) return;
+    const text = turn.thoughtBuffer.map((b) => b.text).join('\n\n').trim();
+    turn.thoughtBuffer.length = 0;
+    if (text) {
+      try { await this.sendThinking(channel, text); } catch {}
+    }
+  }
+
   async _onSessionUpdate(channel, params) {
     const peer = this._peers[channel];
     if (!peer || !peer.currentTurn) return;
@@ -672,6 +692,11 @@ class DevinAdapter extends BaseAdapter {
     switch (u.kind) {
       case 'agent_text': {
         if (!u.text) break;
+        // A text delta means the model has moved from thinking to
+        // answering/narrating — whatever thought was accumulating belongs
+        // to what came before it, not to this text, so it flushes now
+        // rather than getting posted later out of chronological order.
+        await this._flushThought(channel, turn);
         if (turn.hasToolUseSinceLastText) {
           turn.buffer.length = 0;
           turn.hasToolUseSinceLastText = false;
@@ -701,11 +726,22 @@ class DevinAdapter extends BaseAdapter {
       }
       case 'agent_thought': {
         if (!u.text) break;
+        // Same messageId-concatenation discipline as agent_text (see its
+        // comment above) — a word/token-level delta stream, not one
+        // complete thought per chunk. Buffered, not posted per-chunk; see
+        // _flushThought for where this actually reaches sendThinking.
+        const last = turn.thoughtBuffer[turn.thoughtBuffer.length - 1];
+        if (last && u.messageId && last.messageId === u.messageId) {
+          last.text += u.text;
+        } else {
+          turn.thoughtBuffer.push({ messageId: u.messageId || null, text: u.text });
+        }
         turn.postedAnything = true;
-        try { await this.sendThinking(channel, u.text); } catch {}
         break;
       }
       case 'tool_call': {
+        // A tool call is also a thinking → doing boundary: flush first.
+        await this._flushThought(channel, turn);
         // Text buffered before this tool call was mid-turn narration, not the
         // answer — it's discarded from the response buffer below, so flush it
         // to the thinking stream now or it would never be shown at all.
@@ -729,6 +765,7 @@ class DevinAdapter extends BaseAdapter {
         break;
       }
       case 'plan': {
+        await this._flushThought(channel, turn);
         turn.postedAnything = true;
         try { await this.sendStatus(channel, acp.planToStatusText(u.entries)); } catch {}
         break;
@@ -996,7 +1033,7 @@ class DevinAdapter extends BaseAdapter {
     const briefing = isNewSession ? await this._buildSessionBriefing(channel) : '';
     const promptText = (briefing ? briefing + '\n\n' : '') + this._buildContextHeader(channel) + content;
     const turn = {
-      channel, replaying: false, buffer: [], toolCalls: {},
+      channel, replaying: false, buffer: [], thoughtBuffer: [], toolCalls: {},
       hasToolUseSinceLastText: false, postedAnything: false,
       cancelledByUser: false, lastActivityAt: Date.now(),
     };
@@ -1064,6 +1101,11 @@ class DevinAdapter extends BaseAdapter {
       // before reading turn.buffer, or a straggler chunk (most often the
       // tool_call case's narration flush) can be missed.
       await peer._updateChain;
+      // Any thought text still sitting unflushed (the turn ended right after
+      // a thought delta, with no following tool_call/text/plan to trigger
+      // it) belongs in thinking, never in the response — flush it here
+      // rather than silently dropping it.
+      await this._flushThought(channel, turn);
       peer.currentTurn = null;
 
       const stopReason = (response && response.stopReason) || 'end_turn';
