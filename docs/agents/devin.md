@@ -138,6 +138,17 @@ interactive workspace-trust prompt.
 | `DEVIN_MODEL` | Passed as `devin acp --model <value>`. Fuzzy names (`opus`) are accepted, per Devin's own docs. Leave unset for Devin's default. |
 | `DEVIN_PERMISSION_MODE` | How this adapter answers ACP `session/request_permission` requests — see below. |
 
+The workspace's agent-settings model picker offers a curated list
+(`registry/devin.json`'s `models`: `opus`, `claude-opus-4.6`,
+`claude-sonnet-4`, `codex` — the exact example names from `devin --help`).
+Picking one there sets `workspaceModel` (`BaseAdapter.modelLabel()`), which
+takes priority over `DEVIN_MODEL`. That curated list is necessarily a
+snapshot, not the account's real catalog: Devin's actual available models
+depend on the account's plan and change independently of this repo. After
+`devin auth login`, run `devin models list` inside the container for the
+live, complete list — any name it prints can be typed into `DEVIN_MODEL`
+directly even if it isn't in the picker.
+
 **Nobody is attached to this stdio pipe to click "approve."** Every
 permission mode therefore answers automatically; they differ only in *how
 much* they narrate to the channel and whether they ever pick a "remember this

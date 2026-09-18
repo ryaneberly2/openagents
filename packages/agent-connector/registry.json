@@ -2284,7 +2284,7 @@
       },
       {
         "name": "DEVIN_MODEL",
-        "description": "Model id passed to `devin acp --model` (leave blank for Devin's own default; fuzzy names like \"opus\" are accepted)",
+        "description": "Model passed to `devin acp --model` (leave blank for Devin's own default). Accepts a family slug, alias, or partial name — e.g. \"opus\", \"claude-sonnet-4\", \"codex\". Pick one below, or after `devin auth login` run `devin models list` in the container for your account's full, current list — Devin's available models depend on the account's plan and can change independently of this catalog.",
         "required": false
       },
       {
@@ -2293,7 +2293,28 @@
         "required": false
       }
     ],
-    "models": [],
+    "models": [
+      {
+        "id": "opus",
+        "label": "Opus (alias — latest Claude Opus)",
+        "category": "chat"
+      },
+      {
+        "id": "claude-opus-4.6",
+        "label": "Claude Opus 4.6",
+        "category": "chat"
+      },
+      {
+        "id": "claude-sonnet-4",
+        "label": "Claude Sonnet 4",
+        "category": "chat"
+      },
+      {
+        "id": "codex",
+        "label": "Codex (alias — OpenAI's coding model)",
+        "category": "chat"
+      }
+    ],
     "vendor": "Cognition",
     "tagline": "The autonomous software engineer, in your workspace."
   }
