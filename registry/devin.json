@@ -60,7 +60,7 @@
     },
     {
       "name": "DEVIN_MODEL",
-      "description": "Model passed to `devin acp --model` (leave blank for Devin's own default). Accepts a family slug, alias, or partial name — e.g. \"opus\", \"claude-sonnet-4\", \"codex\". Pick one below, or after `devin auth login` run `devin models list` in the container for your account's full, current list — Devin's available models depend on the account's plan and can change independently of this catalog.",
+      "description": "Model passed to `devin acp --model` (leave blank for Devin's own default). Accepts a family slug, alias, or partial name — e.g. \"opus\", \"claude\" (Sonnet 5), \"codex\". Pick one below (snapshot of a live account's `devin models list`, 2026-09-18 — 48 families), or after `devin auth login` run `devin models list` in the container for your account's current list, which can differ and change independently of this catalog. This agent also validates your choice against the live list at startup and warns (advisory only) if it's absent.",
       "required": false
     },
     {
@@ -70,26 +70,54 @@
     }
   ],
   "models": [
-    {
-      "id": "opus",
-      "label": "Opus (alias — latest Claude Opus)",
-      "category": "chat"
-    },
-    {
-      "id": "claude-opus-4.6",
-      "label": "Claude Opus 4.6",
-      "category": "chat"
-    },
-    {
-      "id": "claude-sonnet-4",
-      "label": "Claude Sonnet 4",
-      "category": "chat"
-    },
-    {
-      "id": "codex",
-      "label": "Codex (alias — OpenAI's coding model)",
-      "category": "chat"
-    }
+    { "id": "opus", "label": "Claude Opus 5", "category": "chat" },
+    { "id": "claude-fable-5.1", "label": "Claude Fable 5.1", "category": "chat" },
+    { "id": "claude", "label": "Claude Sonnet 5", "category": "chat" },
+    { "id": "gemini", "label": "Gemini 3.8 Flash", "category": "chat" },
+    { "id": "gpt-5.6-sol", "label": "GPT-5.6 Sol", "category": "chat" },
+    { "id": "gpt-5.6-luna", "label": "GPT-5.6 Luna", "category": "chat" },
+    { "id": "gpt", "label": "GPT-6 Astra", "category": "chat" },
+    { "id": "glm-5.2", "label": "GLM-5.2", "category": "chat" },
+    { "id": "kimi-k3", "label": "Kimi K3", "category": "chat" },
+    { "id": "glm-5.3", "label": "GLM-5.3", "category": "chat" },
+    { "id": "swe-1.7-lightning", "label": "SWE-1.7 Lightning", "category": "chat" },
+    { "id": "swe", "label": "SWE-2", "category": "chat" },
+    { "id": "adaptive", "label": "Adaptive", "category": "chat" },
+    { "id": "claude-opus-4.7", "label": "Claude Opus 4.7", "category": "chat" },
+    { "id": "claude-opus-4.8", "label": "Claude Opus 4.8", "category": "chat" },
+    { "id": "claude-fable-5", "label": "Claude Fable 5", "category": "chat" },
+    { "id": "gemini-3.5-flash", "label": "Gemini 3.5 Flash", "category": "chat" },
+    { "id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash", "category": "chat" },
+    { "id": "gemini-3.7-flash", "label": "Gemini 3.7 Flash", "category": "chat" },
+    { "id": "gpt-5.6-terra", "label": "GPT-5.6 Terra", "category": "chat" },
+    { "id": "grok-4.5", "label": "Grok 4.5", "category": "chat" },
+    { "id": "grok-4.6", "label": "Grok 4.6 (beta)", "category": "chat" },
+    { "id": "inkling", "label": "Inkling", "category": "chat" },
+    { "id": "glm-5.3-flash", "label": "GLM-5.3 Flash", "category": "chat" },
+    { "id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash", "category": "chat" },
+    { "id": "deepseek-v4.1-flash", "label": "DeepSeek V4.1 Flash", "category": "chat" },
+    { "id": "swe-1.7", "label": "SWE-1.7", "category": "chat" },
+    { "id": "fusion", "label": "Fusion", "category": "chat" },
+    { "id": "claude-opus-4.6", "label": "Claude Opus 4.6", "category": "chat" },
+    { "id": "gpt-5.4", "label": "GPT-5.4", "category": "chat" },
+    { "id": "gpt-5.5", "label": "GPT-5.5", "category": "chat" },
+    { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini", "category": "chat" },
+    { "id": "claude-sonnet-4.6", "label": "Claude Sonnet 4.6", "category": "chat" },
+    { "id": "gpt-5.2", "label": "GPT-5.2", "category": "chat" },
+    { "id": "claude-opus-4.5", "label": "Claude Opus 4.5", "category": "chat" },
+    { "id": "haiku", "label": "Claude Haiku 4.5", "category": "chat" },
+    { "id": "claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "category": "chat" },
+    { "id": "gpt-4.1", "label": "GPT-4.1", "category": "chat" },
+    { "id": "gpt-5.1", "label": "GPT-5.1", "category": "chat" },
+    { "id": "codex", "label": "GPT-5.3-Codex", "category": "chat" },
+    { "id": "kimi-k2.6", "label": "Kimi K2.6", "category": "chat" },
+    { "id": "kimi-k2.7", "label": "Kimi K2.7", "category": "chat" },
+    { "id": "nemotron-3-ultra", "label": "Nemotron 3 Ultra", "category": "chat" },
+    { "id": "swe-1.6", "label": "SWE-1.6", "category": "chat" },
+    { "id": "swe-1.6-fast", "label": "SWE-1.6 Fast", "category": "chat" },
+    { "id": "gemini-3.1-pro", "label": "Gemini 3.1 Pro", "category": "chat" },
+    { "id": "gemini-3-flash", "label": "Gemini 3 Flash", "category": "chat" },
+    { "id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro", "category": "chat" }
   ],
   "vendor": "Cognition",
   "tagline": "The autonomous software engineer, in your workspace."
