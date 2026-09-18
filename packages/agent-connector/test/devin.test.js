@@ -82,6 +82,9 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 async function handlePrompt(id, params) {
   sessionId = params.sessionId;
+  if (process.env.FAKE_PROMPT_CAPTURE) {
+    try { fs.appendFileSync(process.env.FAKE_PROMPT_CAPTURE, JSON.stringify(params.prompt) + '\\n---PROMPT---\\n'); } catch {}
+  }
   if (scenario === 'success') {
     update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Reasoning about the request...' } });
     update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Let me read that file first.' } });
@@ -344,6 +347,23 @@ describe('DevinAdapter — initialize, session creation, first turn', () => {
     // Session id persisted for the channel.
     const saved = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
     assert.match(saved.thread, /^sess-\d+-1$/);
+  });
+
+  it('prepends the workspace briefing to a new session\'s first prompt, and does not re-send it on resume', async () => {
+    const capturePath = path.join(tmpRoot, `prompt-capture-${Date.now()}.txt`);
+    const a = makeAdapter({ scenario: 'success', env: { FAKE_PROMPT_CAPTURE: capturePath } });
+    await send(a, 'first message');
+
+    const first = fs.readFileSync(capturePath, 'utf-8');
+    assert.ok(/workspace briefing/.test(first), 'a new session\'s first prompt must carry the workspace briefing');
+    assert.ok(/You are agent 'devin-bot' connected to an OpenAgents workspace/.test(first));
+
+    // A fresh peer resuming the SAME session (session/load) must not get a
+    // second copy — the briefing is already in the replayed history.
+    delete a._peers.thread;
+    await send(a, 'follow up message');
+    const all = fs.readFileSync(capturePath, 'utf-8');
+    assert.equal((all.match(/workspace briefing/g) || []).length, 1, 'the briefing must not be re-sent on session/load');
   });
 
   it('a second mention in the same channel resumes the same session (session/load)', async () => {

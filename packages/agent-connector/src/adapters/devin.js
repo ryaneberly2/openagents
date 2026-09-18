@@ -41,6 +41,7 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { buildDevinSystemPrompt } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary, resolveBinaryInKnownDirs } = require('../paths');
 const { REASON, classifyAcpAuthError } = require('./health-status');
 const acp = require('./devin-acp');
@@ -233,6 +234,9 @@ class DevinAdapter extends BaseAdapter {
     // authenticated), meaning "unknown, don't warn" everywhere it's read.
     this._availableModels = null;
     this._warnedUnknownModels = new Set();
+    // Opt into the base class's per-message pinned-context prefetch so the
+    // session briefing can embed the channel's decision log + glossary.
+    this._usesPinnedContext = true;
   }
 
   /**
@@ -565,7 +569,7 @@ class DevinAdapter extends BaseAdapter {
    * resume that's rejected starts fresh and tells the channel").
    */
   async _ensureSession(channel, peer) {
-    if (peer.sessionId) return peer.sessionId;
+    if (peer.sessionId) return { sessionId: peer.sessionId, isNew: false };
 
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     const mcpServer = this._resolveWorkspaceMcpServer(channel);
@@ -584,7 +588,7 @@ class DevinAdapter extends BaseAdapter {
         );
         peer.currentTurn = null;
         peer.sessionId = existingSessionId;
-        return peer.sessionId;
+        return { sessionId: peer.sessionId, isNew: false };
       } catch (e) {
         peer.currentTurn = null;
         this._log(`Session resume rejected for ${channel} (${e.message}) — starting a fresh session`);
@@ -602,7 +606,7 @@ class DevinAdapter extends BaseAdapter {
     if (!peer.sessionId) throw new Error('Devin did not return a session id from session/new');
     this._channelSessions[channel] = peer.sessionId;
     this._saveSessions();
-    return peer.sessionId;
+    return { sessionId: peer.sessionId, isNew: true };
   }
 
   /**
@@ -893,6 +897,35 @@ class DevinAdapter extends BaseAdapter {
     return `[workspace] You are agent '${this.agentName}', working in the '${channel}' channel of an OpenAgents workspace. Focus only on what this message asks.\n\n`;
   }
 
+  /**
+   * The full workspace briefing for a brand-new ACP session — identity, the
+   * MCP tool names, collaboration rules, mode, the channel's pinned decision
+   * log + glossary, and the standing guardrails (buildDevinSystemPrompt).
+   * Prepended to the session's FIRST prompt only: it becomes part of the
+   * persisted conversation, so it stays in context on later turns without
+   * being re-sent — the same trick openworker.js uses, for the same reason
+   * (no system-prompt channel). Resumed sessions (session/load) already
+   * carry it in their history, so it is skipped there.
+   */
+  async _buildSessionBriefing(channel) {
+    try {
+      const browserEnabled = await this.getBrowserEnabled();
+      return '[workspace briefing — applies to every message in this session]\n'
+        + buildDevinSystemPrompt({
+          agentName: this.agentName,
+          workspaceId: this.workspaceId,
+          channelName: channel,
+          mode: this._mode,
+          browserEnabled,
+          model: this.modelLabel(),
+          ...this.pinnedPromptOpts(channel),
+        });
+    } catch (e) {
+      this._log(`Could not build workspace briefing (non-fatal): ${e.message}`);
+      return '';
+    }
+  }
+
   async _handleMessage(msg) {
     let content = (msg.content || '').trim();
     const attachments = msg.attachments || [];
@@ -919,13 +952,14 @@ class DevinAdapter extends BaseAdapter {
     await this.sendStatus(channel, 'thinking...');
 
     let peer;
+    let isNewSession = false;
     try {
       peer = await this._ensurePeer(channel);
       try {
-        await this._ensureSession(channel, peer);
+        ({ isNew: isNewSession } = await this._ensureSession(channel, peer));
       } catch (e) {
         if (classifyAcpAuthError(e).isAuthError && await this._tryAuthenticate(peer)) {
-          await this._ensureSession(channel, peer);
+          ({ isNew: isNewSession } = await this._ensureSession(channel, peer));
         } else {
           throw e;
         }
@@ -942,7 +976,8 @@ class DevinAdapter extends BaseAdapter {
       return;
     }
 
-    const promptText = this._buildContextHeader(channel) + content;
+    const briefing = isNewSession ? await this._buildSessionBriefing(channel) : '';
+    const promptText = (briefing ? briefing + '\n\n' : '') + this._buildContextHeader(channel) + content;
     const turn = {
       channel, replaying: false, buffer: [], toolCalls: {},
       hasToolUseSinceLastText: false, postedAnything: false,

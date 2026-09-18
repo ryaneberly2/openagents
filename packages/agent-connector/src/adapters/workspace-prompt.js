@@ -1084,6 +1084,33 @@ function buildOpenWorkerSystemPrompt({ agentName, workspaceId, channelName, endp
 }
 
 /**
+ * Build the workspace briefing prepended to the first user message of a
+ * Devin ACP session.
+ *
+ * Devin speaks ACP, which has no system-prompt channel at all — like
+ * OpenWorker, this briefing goes in front of the session's first user
+ * message so it becomes part of the persisted conversation (still in
+ * context on every later turn, which is why it is sent once per session,
+ * not per turn). Unlike OpenWorker, Devin IS wired to the workspace MCP
+ * server via `session/new`'s mcpServers, so this uses the `mcp` toolMode
+ * phrasing throughout — the same native `workspace_*` tool names Claude's
+ * MCP tool block references — and embeds no token/endpoint (the MCP
+ * server carries those; a pasted curl block would only leak the token
+ * into the session transcript).
+ */
+function buildDevinSystemPrompt({ agentName, workspaceId, channelName, mode = 'execute', browserEnabled = false, decisionLog = null, glossary = null, model = null }) {
+  const parts = [];
+  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'mcp', model));
+  parts.push(buildClaudeMcpToolBlock());
+  parts.push(buildBrowserDirective(browserEnabled));
+  parts.push(buildCollaborationPrompt('mcp', workspaceSkillName(agentName)));
+  parts.push(buildModePrompt(mode));
+  parts.push(...buildPinnedSections({ toolMode: 'mcp', channelName, mode, decisionLog, glossary }));
+  parts.push(buildGuardrails());
+  return parts.join('\n');
+}
+
+/**
  * Build the task FILE contents for the DeepSeek Harness adapter.
  *
  * dsh takes its task as a positional argv element and has no stdin channel, so
@@ -1287,6 +1314,7 @@ module.exports = {
   buildCommandCodeSkillMd,
   buildPiSystemPrompt,
   buildOpenWorkerSystemPrompt,
+  buildDevinSystemPrompt,
   buildDeepSeekTaskFile,
   buildClaudeSkillMd,
   buildCursorSkillMd,
