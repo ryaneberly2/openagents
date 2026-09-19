@@ -90,8 +90,11 @@ async function handlePrompt(id, params) {
     update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Let me read that file first.' } });
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Reading file', kind: 'read', status: 'in_progress' });
     update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
-    update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: 'msg-1', content: { type: 'text', text: 'Hello ' } });
-    update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: 'msg-1', content: { type: 'text', text: 'from Devin.' } });
+    // Deliberately no messageId — the real devin acp never sends one
+    // (found 2026-09-19; see appendMessageChunk's own comment). These must
+    // still concatenate into "Hello from Devin.", not two separate lines.
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hello ' } });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'from Devin.' } });
     update(sessionId, { sessionUpdate: 'plan', entries: [{ content: 'Do the thing', status: 'completed', priority: 'high' }] });
     ok(id, { stopReason: 'end_turn' });
     return;

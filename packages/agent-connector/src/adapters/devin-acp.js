@@ -207,6 +207,40 @@ function contentBlockToText(block) {
 }
 
 /**
+ * Append one streamed text delta (an interpreted agent_text/agent_thought
+ * update) onto a buffer of `{ messageId, text }` entries, concatenating it
+ * onto the last entry when it belongs to the same message.
+ *
+ * Per the ACP spec (https://agentclientprotocol.com/protocol/prompt-turn):
+ * "The Agent MAY include an opaque, unique messageId on message chunks.
+ * Chunks with the same messageId belong to the same message; a changed
+ * messageId indicates a new message." MAY — it's optional, and Devin's real
+ * `devin acp` never sends it (found 2026-09-19: every chunk arrived with no
+ * messageId, so the earlier `u.messageId && last.messageId === u.messageId`
+ * check never matched, and every single delta started a new buffer entry —
+ * word-by-word fragmentation once the entries were joined with '\n\n').
+ *
+ * The fix: absence of messageId is not evidence of a NEW message on a field
+ * the spec says agents may simply not use — only an explicit, DIFFERING id
+ * is. So chunks concatenate when either (a) both sides name the same id, or
+ * (b) neither side names one at all (the common case for Devin — one
+ * continuous stream, correlated by nothing but arrival order, which is
+ * exactly what the spec leaves a client to fall back on).
+ */
+function appendMessageChunk(buffer, chunk) {
+  const last = buffer[buffer.length - 1];
+  const sameMessage = last && (
+    (chunk.messageId && last.messageId && chunk.messageId === last.messageId)
+    || (!chunk.messageId && !last.messageId)
+  );
+  if (sameMessage) {
+    last.text += chunk.text;
+  } else {
+    buffer.push({ messageId: chunk.messageId || null, text: chunk.text });
+  }
+}
+
+/**
  * Normalize one `session/update` payload's `update` field into a shape the
  * adapter can act on without re-deriving the discriminator logic. Unknown /
  * not-yet-handled variants come back as `{ kind: 'other', sessionUpdate }` so
@@ -480,6 +514,7 @@ function redactFrameForLog(msg, maxLen = 500) {
 module.exports = {
   PROTOCOL_VERSION,
   ERROR_CODE,
+  appendMessageChunk,
   encodeMessage,
   createLineDecoder,
   buildRequest,

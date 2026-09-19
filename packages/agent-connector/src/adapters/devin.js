@@ -54,8 +54,19 @@ const IS_WINDOWS = process.platform === 'win32';
 const IDLE_NOTICE_MS = 45 * 1000;
 // A turn with truly no activity for this long is almost certainly wedged
 // (peer stopped responding without exiting) — cut it loose rather than hold
-// the channel busy forever.
-const TURN_HARD_TIMEOUT_MS = 45 * 60 * 1000;
+// the channel busy forever. Raised from 45 to 90 min 2026-09-19: a real
+// forge-devin task (ADO 523, env.sh up gimli) hit 45 min twice in a row while
+// still actively working, not stalled — Devin's own log showed it building,
+// deploying, and polling right up to the millisecond the timeout killed it.
+// Investigated why: gimli's own deploy pipeline isn't slow (each attempt
+// finishes in single-digit minutes, ~5-9 for the .NET build+containerize
+// step, even on failure) — the wall-clock cost is a real iterative
+// debug loop, 13 deploy attempts in under an hour with several "pod never
+// became healthy" failures Devin had to diagnose and fix between retries.
+// That's expected behavior for real feature work with a live health-check
+// gate, not a bug to route around — the timeout just needs enough room for
+// it.
+const TURN_HARD_TIMEOUT_MS = 90 * 60 * 1000;
 // How long we wait for the `initialize` handshake before giving up on a
 // freshly-spawned peer.
 const INIT_TIMEOUT_MS = 20 * 1000;
@@ -701,20 +712,11 @@ class DevinAdapter extends BaseAdapter {
           turn.buffer.length = 0;
           turn.hasToolUseSinceLastText = false;
         }
-        // Chunks sharing a messageId are token/word-level deltas of the SAME
-        // message and must be concatenated directly (no separator) to
-        // reconstruct it; a new messageId (or none) starts a new buffer
-        // entry, joined with a blank line from the others at the end. This
-        // is exactly what ACP's `messageId` field on ContentChunk exists for
-        // — treating every chunk as its own line (as a naive '\n'.join would)
-        // would fragment ordinary word-by-word streaming into one line per
-        // token.
-        const last = turn.buffer[turn.buffer.length - 1];
-        if (last && u.messageId && last.messageId === u.messageId) {
-          last.text += u.text;
-        } else {
-          turn.buffer.push({ messageId: u.messageId || null, text: u.text });
-        }
+        // Chunks are token/word-level deltas of one ongoing message and must
+        // be concatenated (no separator) to reconstruct it — see
+        // appendMessageChunk's own comment for why this can't rely on
+        // messageId matching alone (it's optional, and Devin never sends it).
+        acp.appendMessageChunk(turn.buffer, u);
         turn.postedAnything = true;
         // Deliberately NOT streamed via sendThinking here, unlike
         // agent_thought below: chunks still in the buffer at turn end ARE the
@@ -726,16 +728,10 @@ class DevinAdapter extends BaseAdapter {
       }
       case 'agent_thought': {
         if (!u.text) break;
-        // Same messageId-concatenation discipline as agent_text (see its
-        // comment above) — a word/token-level delta stream, not one
-        // complete thought per chunk. Buffered, not posted per-chunk; see
+        // Same concatenation discipline as agent_text (see
+        // appendMessageChunk) — buffered, not posted per-chunk; see
         // _flushThought for where this actually reaches sendThinking.
-        const last = turn.thoughtBuffer[turn.thoughtBuffer.length - 1];
-        if (last && u.messageId && last.messageId === u.messageId) {
-          last.text += u.text;
-        } else {
-          turn.thoughtBuffer.push({ messageId: u.messageId || null, text: u.text });
-        }
+        acp.appendMessageChunk(turn.thoughtBuffer, u);
         turn.postedAnything = true;
         break;
       }

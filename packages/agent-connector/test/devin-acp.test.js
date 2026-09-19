@@ -155,6 +155,42 @@ describe('devin-acp — session/update interpretation', () => {
   });
 });
 
+describe('devin-acp — appendMessageChunk', () => {
+  it('concatenates consecutive chunks that both omit messageId (the real Devin shape)', () => {
+    const buf = [];
+    acp.appendMessageChunk(buf, { text: 'Hello ', messageId: null });
+    acp.appendMessageChunk(buf, { text: 'from Devin.', messageId: null });
+    assert.deepEqual(buf, [{ messageId: null, text: 'Hello from Devin.' }]);
+  });
+
+  it('concatenates consecutive chunks sharing an explicit messageId', () => {
+    const buf = [];
+    acp.appendMessageChunk(buf, { text: 'Check', messageId: 'th-1' });
+    acp.appendMessageChunk(buf, { text: 'ing.', messageId: 'th-1' });
+    assert.deepEqual(buf, [{ messageId: 'th-1', text: 'Checking.' }]);
+  });
+
+  it('starts a new entry when messageId explicitly changes', () => {
+    const buf = [];
+    acp.appendMessageChunk(buf, { text: 'first', messageId: 'a' });
+    acp.appendMessageChunk(buf, { text: 'second', messageId: 'b' });
+    assert.deepEqual(buf, [{ messageId: 'a', text: 'first' }, { messageId: 'b', text: 'second' }]);
+  });
+
+  it('starts a new entry on a mixed transition (one side has an id, the other does not)', () => {
+    const buf = [];
+    acp.appendMessageChunk(buf, { text: 'first', messageId: 'a' });
+    acp.appendMessageChunk(buf, { text: 'second', messageId: null });
+    assert.deepEqual(buf, [{ messageId: 'a', text: 'first' }, { messageId: null, text: 'second' }]);
+  });
+
+  it('the first chunk always starts a new entry regardless of messageId', () => {
+    const buf = [];
+    acp.appendMessageChunk(buf, { text: 'only', messageId: null });
+    assert.deepEqual(buf, [{ messageId: null, text: 'only' }]);
+  });
+});
+
 describe('devin-acp — permission-mode policy', () => {
   const OPTS = [
     { optionId: 'a1', name: 'Allow once', kind: 'allow_once' },
