@@ -1,7 +1,11 @@
-import Avatar from 'boring-avatars';
+import { useMemo } from 'react';
+import { createAvatar } from '@dicebear/core';
+import { funEmoji } from '@dicebear/collection';
 import { cn } from '@/lib/utils';
 
-const OA_PALETTE = ['#6366F1', '#8B5CF6', '#06B6D4', '#10B981', '#F59E0B'];
+// backgroundColor wants hex WITHOUT '#' — this is the same brand palette
+// boring-avatars was constrained to before the swap.
+const OA_PALETTE = ['6366F1', '8B5CF6', '06B6D4', '10B981', 'F59E0B'];
 
 // The built-in Yumi assistant has a fixed brand avatar instead of a generated
 // one. Its agent name is reserved/unique (provider "openagents"), so matching
@@ -19,6 +23,14 @@ interface AgentAvatarProps {
 }
 
 export function AgentAvatar({ name, size = 28, status, showStatus = false, className, square = false }: AgentAvatarProps) {
+  // Deterministic on `name` alone — same seed in, same face+color out, same
+  // guarantee boring-avatars gave (no per-agent-type icon; two agents with
+  // different names always render differently). Memoized since createAvatar
+  // does real work (SVG generation) on every call.
+  const dataUri = useMemo(
+    () => createAvatar(funEmoji, { seed: name, backgroundColor: OA_PALETTE }).toDataUri(),
+    [name],
+  );
   return (
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div className={cn(square ? 'rounded-lg' : 'rounded-full', 'overflow-hidden')} style={{ width: size, height: size }}>
@@ -32,7 +44,7 @@ export function AgentAvatar({ name, size = 28, status, showStatus = false, class
             draggable={false}
           />
         ) : (
-          <Avatar name={name} size={size} variant="beam" colors={OA_PALETTE} square={square} />
+          <img src={dataUri} alt={name} width={size} height={size} className="size-full object-cover" draggable={false} />
         )}
       </div>
       {showStatus && (

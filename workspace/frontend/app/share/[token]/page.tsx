@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useMemo, useState, use } from 'react';
 import Image from 'next/image';
-import Avatar from 'boring-avatars';
+import { createAvatar } from '@dicebear/core';
+import { funEmoji } from '@dicebear/collection';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Loader2 } from 'lucide-react';
 import type { SharedSnapshotMessage } from '@/lib/types';
@@ -10,7 +11,9 @@ import { useFormatters, useT } from '@/lib/i18n';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 
-const OA_PALETTE = ['#6C5CE7', '#A29BFE', '#74B9FF', '#0984E3', '#00CEC9'];
+// backgroundColor wants hex WITHOUT '#' — this route's own palette (distinct
+// from AgentAvatar's) is unchanged by the boring-avatars -> dicebear swap.
+const OA_PALETTE = ['6C5CE7', 'A29BFE', '74B9FF', '0984E3', '00CEC9'];
 
 interface SnapshotData {
   id: string;
@@ -21,9 +24,13 @@ interface SnapshotData {
 }
 
 function SenderAvatar({ name, size = 28 }: { name: string; size?: number }) {
+  const dataUri = useMemo(
+    () => createAvatar(funEmoji, { seed: name, backgroundColor: OA_PALETTE }).toDataUri(),
+    [name],
+  );
   return (
     <div className="rounded-full overflow-hidden shrink-0" style={{ width: size, height: size }}>
-      <Avatar name={name} size={size} variant="beam" colors={OA_PALETTE} />
+      <img src={dataUri} alt={name} width={size} height={size} className="size-full object-cover" draggable={false} />
     </div>
   );
 }
