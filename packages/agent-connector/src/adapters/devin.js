@@ -49,9 +49,14 @@ const acp = require('./devin-acp');
 const IS_WINDOWS = process.platform === 'win32';
 
 // No activity (no session/update notification) for this long during an
-// in-flight turn gets one "still working..." nudge, so a long agentic turn
+// in-flight turn gets a "still working..." nudge, so a long agentic turn
 // never reads as a hang in the channel. Not a cancellation trigger by itself.
 const IDLE_NOTICE_MS = 45 * 1000;
+// After the first notice, repeat at this (much longer) cadence for as long
+// as the silence continues — visibility for a genuinely long turn (a real
+// gimli-style build/deploy can run several minutes with zero ACP traffic)
+// without spamming the channel every 45s.
+const IDLE_NOTICE_REPEAT_MS = 3 * 60 * 1000;
 // A turn with truly no activity for this long is almost certainly wedged
 // (peer stopped responding without exiting) — cut it loose rather than hold
 // the channel busy forever. Raised from 45 to 90 min 2026-09-19: a real
@@ -67,6 +72,18 @@ const IDLE_NOTICE_MS = 45 * 1000;
 // gate, not a bug to route around — the timeout just needs enough room for
 // it.
 const TURN_HARD_TIMEOUT_MS = 90 * 60 * 1000;
+// A silence watchdog, distinct from the hard timeout above: fires much
+// sooner (5 min, matching claude.js's and openworker.js's own silence
+// watchdogs), but ONLY when nothing is legitimately holding the turn up.
+// This can NOT be a bare "no session/update in N minutes" check — Devin's
+// own internal log during the gimli investigation (2026-09-19) showed it
+// goes completely silent, no ACP traffic at all, for the ENTIRE duration of
+// a long exec tool call (the .NET build alone ran ~9 minutes with nothing
+// reported). A naive silence timer would kill exactly the long-but-healthy
+// turns TURN_HARD_TIMEOUT_MS was just raised to tolerate. So this only
+// counts silence while _hasActiveToolCall() is false — i.e. Devin is
+// supposed to be actively reasoning/responding, not waiting on a tool.
+const SILENCE_WATCHDOG_MS = 5 * 60 * 1000;
 // How long we wait for the `initialize` handshake before giving up on a
 // freshly-spawned peer.
 const INIT_TIMEOUT_MS = 20 * 1000;
@@ -265,6 +282,10 @@ class DevinAdapter extends BaseAdapter {
     // Opt into the base class's per-message pinned-context prefetch so the
     // session briefing can embed the channel's decision log + glossary.
     this._usesPinnedContext = true;
+    // Instance properties (not module consts) so tests can override them to
+    // short values, same pattern as claude.js's own _WATCHDOG_* fields.
+    this._silenceWatchdogMs = SILENCE_WATCHDOG_MS;
+    this._watchdogTickMs = 15 * 1000;
   }
 
   /**
@@ -692,6 +713,17 @@ class DevinAdapter extends BaseAdapter {
     }
   }
 
+  /**
+   * True while any tool call on this turn is still outstanding (`pending` or
+   * `in_progress` — `completed`/`failed` are the only terminal states ACP
+   * reports). The silence watchdog must never fire while this is true: a
+   * long-running exec/build tool call is legitimately silent on the wire for
+   * its whole duration (see SILENCE_WATCHDOG_MS's own comment).
+   */
+  _hasActiveToolCall(turn) {
+    return Object.values(turn.toolCalls).some((tc) => tc.status === 'pending' || tc.status === 'in_progress');
+  }
+
   async _onSessionUpdate(channel, params) {
     const peer = this._peers[channel];
     if (!peer || !peer.currentTurn) return;
@@ -1027,7 +1059,7 @@ class DevinAdapter extends BaseAdapter {
     }
 
     const briefing = isNewSession ? await this._buildSessionBriefing(channel) : '';
-    const promptText = (briefing ? briefing + '\n\n' : '') + this._buildContextHeader(channel) + content;
+    let promptText = (briefing ? briefing + '\n\n' : '') + this._buildContextHeader(channel) + content;
     const turn = {
       channel, replaying: false, buffer: [], thoughtBuffer: [], toolCalls: {},
       hasToolUseSinceLastText: false, postedAnything: false,
@@ -1037,19 +1069,37 @@ class DevinAdapter extends BaseAdapter {
 
     let idleTimer = null;
     let hardTimer = null;
-    const clearTimers = () => { if (idleTimer) clearInterval(idleTimer); if (hardTimer) clearTimeout(hardTimer); };
-    const startIdleTimer = () => {
+    let wedgeReject = null;
+    const clearTimers = () => { if (idleTimer) clearInterval(idleTimer); if (hardTimer) clearTimeout(hardTimer); wedgeReject = null; };
+    const startWatchdog = () => {
       idleTimer = setInterval(() => {
-        if (Date.now() - turn.lastActivityAt >= IDLE_NOTICE_MS && !turn._idleNoticeSent) {
-          turn._idleNoticeSent = true;
-          this.sendStatus(channel, 'Still working...').catch(() => {});
+        const silentMs = Date.now() - turn.lastActivityAt;
+        const dueForNotice = silentMs >= IDLE_NOTICE_MS
+          && (!turn._lastNoticeAt || Date.now() - turn._lastNoticeAt >= IDLE_NOTICE_REPEAT_MS);
+        if (dueForNotice) {
+          turn._lastNoticeAt = Date.now();
+          // Name the actual outstanding tool call when there is one (a real
+          // gimli-style build looks identical to a hang from silence alone —
+          // this is what makes it visibly NOT one), otherwise a generic
+          // still-thinking nudge.
+          const activeCall = Object.values(turn.toolCalls).find((tc) => tc.status === 'pending' || tc.status === 'in_progress');
+          const notice = activeCall ? `Still working — ${acp.toolCallLabel(activeCall)}` : 'Still working...';
+          this.sendStatus(channel, notice).catch(() => {});
         }
-      }, IDLE_NOTICE_MS);
+        if (silentMs >= this._silenceWatchdogMs && wedgeReject && !this._hasActiveToolCall(turn)) {
+          const reject = wedgeReject;
+          wedgeReject = null;
+          const err = new Error(`Devin produced no activity for ${Math.round(this._silenceWatchdogMs / 60000)} minutes with no tool call in flight — likely wedged.`);
+          err.isWedge = true;
+          reject(err);
+        }
+      }, this._watchdogTickMs);
     };
 
     let attemptedAuth = false;
+    let attemptedRecovery = false;
     for (;;) {
-      startIdleTimer();
+      startWatchdog();
       let response;
       try {
         response = await Promise.race([
@@ -1057,6 +1107,7 @@ class DevinAdapter extends BaseAdapter {
           new Promise((_, reject) => {
             hardTimer = setTimeout(() => reject(new Error('Devin turn exceeded the maximum allowed duration and was aborted.')), TURN_HARD_TIMEOUT_MS);
           }),
+          new Promise((_, reject) => { wedgeReject = reject; }),
         ]);
       } catch (e) {
         clearTimers();
@@ -1077,6 +1128,47 @@ class DevinAdapter extends BaseAdapter {
           // hard-timeout path; a graceful cancel resolves the request normally
           // (handled below) so reaching here means it was the hard kill.
           return;
+        }
+        // One automatic recovery attempt for anything else — a wedge (this
+        // turn's silence watchdog), the hard timeout, or a process crash: kill
+        // the dead/stuck peer, respawn, and resume via session/load (which
+        // replays the full history, including the original message — no need
+        // to resend it), then reissue a short continuation nudge. This closes
+        // the "needs a manual @mention to continue" gap found 2026-09-19
+        // (channel-bcd3ddce, channel-9c4ef6ae both sat failed until someone
+        // told the agent to continue by hand). Only surfaces an error to the
+        // channel if the retry itself also fails — never masks a real,
+        // still-broken agent behind a silent retry loop (one attempt only).
+        if (!attemptedRecovery) {
+          attemptedRecovery = true;
+          this._log(`Devin turn failed for ${channel} (${e.isWedge ? 'wedge' : 'failure'}): ${e.message} — attempting one automatic recovery`);
+          await this._stopProcess(peer.proc);
+          delete this._peers[channel];
+          try {
+            const freshPeer = await this._ensurePeer(channel);
+            const { isNew: recoveryIsNew } = await this._ensureSession(channel, freshPeer);
+            const recoveryBriefing = recoveryIsNew ? await this._buildSessionBriefing(channel) : '';
+            promptText = (recoveryBriefing ? recoveryBriefing + '\n\n' : '')
+              + this._buildContextHeader(channel) + 'Continue from where you left off.';
+            peer = freshPeer;
+            peer.currentTurn = turn;
+            turn.buffer.length = 0;
+            turn.thoughtBuffer.length = 0;
+            // Stale tool-call entries from the dead attempt must not survive
+            // — a leftover 'in_progress' entry would make _hasActiveToolCall
+            // return true forever, permanently disabling the watchdog on the
+            // retried attempt even though that tool call's own process is
+            // gone.
+            turn.toolCalls = {};
+            turn.hasToolUseSinceLastText = false;
+            turn.lastActivityAt = Date.now();
+            turn._lastNoticeAt = null;
+            continue;
+          } catch (recoverErr) {
+            this._log(`Devin recovery respawn failed for ${channel}: ${recoverErr.message}`);
+            // fall through and report the ORIGINAL failure below — a failed
+            // respawn is not itself the interesting error for the channel.
+          }
         }
         this._log(`Devin turn failed for ${channel}: ${e.message}`);
         await this.sendError(channel, `Devin agent error: ${redactSecrets(e.message)}`);

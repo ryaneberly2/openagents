@@ -158,6 +158,36 @@ async function handlePrompt(id, params) {
     await sleep(100);
     process.exit(1);
   }
+  if (scenario === 'wedge_then_recover') {
+    // First invocation (no marker file yet): never respond at all — a
+    // genuine silent wedge. Each retry is a FRESH process (a new devin
+    // binary invocation, not a resumed in-memory one), so a marker FILE is
+    // how this fake peer tells "first attempt" from "the retry" apart.
+    const marker = process.env.FAKE_WEDGE_MARKER;
+    if (marker && !fs.existsSync(marker)) {
+      fs.writeFileSync(marker, '1');
+      return;
+    }
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Recovered fine.' } });
+    ok(id, { stopReason: 'end_turn' });
+    return;
+  }
+  if (scenario === 'always_wedged') {
+    // Never responds, on every invocation, including the retry — proves
+    // recovery is attempted exactly once, not forever.
+    return;
+  }
+  if (scenario === 'long_tool_call_no_wedge') {
+    // Silent for longer than the (test-shortened) silence watchdog, but with
+    // a tool_call legitimately in_progress the whole time — this must NOT
+    // be treated as a wedge (the real-world case: a multi-minute build).
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Building...', kind: 'execute', status: 'in_progress' });
+    await sleep(150);
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Build finished.' } });
+    ok(id, { stopReason: 'end_turn' });
+    return;
+  }
   if (scenario === 'malformed_stream') {
     for (let i = 0; i < 8; i++) process.stdout.write('not json at all ' + i + '\\n');
     // never respond — the parse-error threshold should trip first
@@ -561,6 +591,40 @@ describe('DevinAdapter — failure recovery', () => {
     await send(a, 'hello');
     assert.equal(a._captured.error.length, 1);
     assert.ok(/devin auth login|WINDSURF_API_KEY/i.test(a._captured.error[0]));
+  });
+});
+
+describe('DevinAdapter — silence watchdog and auto-recovery', () => {
+  it('recovers automatically from a silence wedge via one retry, with no channel error at all', async () => {
+    const marker = path.join(tmpRoot, `wedge-marker-${Date.now()}.flag`);
+    const a = makeAdapter({ scenario: 'wedge_then_recover', env: { FAKE_WEDGE_MARKER: marker } });
+    a._silenceWatchdogMs = 50;
+    a._watchdogTickMs = 10;
+    await send(a, 'do something that will wedge once');
+    assert.equal(a._captured.error.length, 0, 'a successful auto-recovery must not surface any error');
+    assert.ok(a._captured.response.includes('Recovered fine.'));
+  });
+
+  it('never fires the silence watchdog while a tool call is legitimately in_progress', async () => {
+    // Real-world motivation: a gimli-style .NET build ran ~9 minutes with
+    // zero ACP traffic (2026-09-19). This silence (150ms) is 3x the test's
+    // shortened watchdog threshold (50ms) — it must survive anyway because
+    // a tool_call is in_progress the whole time.
+    const a = makeAdapter({ scenario: 'long_tool_call_no_wedge' });
+    a._silenceWatchdogMs = 50;
+    a._watchdogTickMs = 10;
+    await send(a, 'run a long build');
+    assert.equal(a._captured.error.length, 0);
+    assert.ok(a._captured.response.includes('Build finished.'));
+  });
+
+  it('gives up after exactly one automatic recovery attempt, does not retry forever', async () => {
+    const a = makeAdapter({ scenario: 'always_wedged' });
+    a._silenceWatchdogMs = 50;
+    a._watchdogTickMs = 10;
+    await send(a, 'this will always wedge');
+    assert.equal(a._captured.error.length, 1);
+    assert.ok(/wedged|activity/i.test(a._captured.error[0]));
   });
 });
 
