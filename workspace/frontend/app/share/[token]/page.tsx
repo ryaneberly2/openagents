@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, use } from 'react';
 import Image from 'next/image';
 import { createAvatar } from '@dicebear/core';
-import { funEmoji } from '@dicebear/collection';
+import { bigSmile } from '@dicebear/collection';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Loader2 } from 'lucide-react';
 import type { SharedSnapshotMessage } from '@/lib/types';
@@ -11,9 +11,9 @@ import { useFormatters, useT } from '@/lib/i18n';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 
-// backgroundColor wants hex WITHOUT '#' — this route's own palette (distinct
-// from AgentAvatar's) is unchanged by the boring-avatars -> dicebear swap.
-const OA_PALETTE = ['6C5CE7', 'A29BFE', '74B9FF', '0984E3', '00CEC9'];
+// Same "electric" bigSmile preset as AgentAvatar — unified across both
+// usages rather than kept as two distinct palettes (2026-09-21).
+const OA_PALETTE = ['00E5FF', '7B2FFF', 'FF2E9A', '39FF88', 'FFEA00'];
 
 interface SnapshotData {
   id: string;
@@ -25,7 +25,7 @@ interface SnapshotData {
 
 function SenderAvatar({ name, size = 28 }: { name: string; size?: number }) {
   const dataUri = useMemo(
-    () => createAvatar(funEmoji, { seed: name, backgroundColor: OA_PALETTE }).toDataUri(),
+    () => createAvatar(bigSmile, { seed: name, backgroundColor: OA_PALETTE }).toDataUri(),
     [name],
   );
   return (
