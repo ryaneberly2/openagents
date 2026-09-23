@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { workspaceApi } from './api';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
@@ -271,6 +272,10 @@ export function WorkspaceProvider({
   currentUserRef.current = currentUser;
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
+  // Read inside setCurrentSessionId (see ACTIVE_THREAD_KEY below) without making
+  // that callback's identity depend on sessions, which changes on every message.
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   const [currentSessionId, _setCurrentSessionId] = useState<string | null>(null);
 
   // ── Thread read state ──
@@ -315,6 +320,14 @@ export function WorkspaceProvider({
         next.delete(id);
         return next;
       });
+      // Same-origin, same-device only (voice console lives at /voice/ behind the
+      // same nginx front door): the storage event fires in every OTHER tab, not
+      // this one, so the voice console picks this up and feeds it into the live
+      // Gemini session as context — no backend round-trip needed.
+      try {
+        const title = sessionsRef.current.find((s) => s.sessionId === id)?.title || null;
+        localStorage.setItem('openagents:active-thread', JSON.stringify({ channel: id, title, ts: Date.now() }));
+      } catch { /* storage unavailable/full — the voice console just keeps its last-known value */ }
     }
   }, [markSessionRead]);
   const consumeSkipFocus = useCallback(() => {
@@ -322,6 +335,35 @@ export function WorkspaceProvider({
     skipFocusRef.current = false;
     return v;
   }, []);
+
+  // Voice console → UI: when the voice assistant creates or posts into a
+  // thread, it writes 'openagents:focus-thread' (same-device only — see
+  // openagents:active-thread above for the reverse direction). Surfaced as a
+  // toast rather than an auto-navigate so it never yanks the human away from
+  // whatever they're actively doing.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'openagents:focus-thread' || !e.newValue) return;
+      let payload: { channel?: string; title?: string } = {};
+      try {
+        payload = JSON.parse(e.newValue);
+      } catch {
+        return;
+      }
+      const { channel, title } = payload;
+      if (!channel || channel === currentSessionId) return;
+      toast('New thread opened by voice', {
+        description: title || channel,
+        action: {
+          label: 'View',
+          onClick: () => setCurrentSessionId(channel),
+        },
+      });
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [currentSessionId, setCurrentSessionId]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastMessageBySession, setLastMessageBySession] = useState<Record<string, LastMessageInfo>>({});
