@@ -790,17 +790,28 @@ function defaultSessionTitle(participants: string[]): string {
 }
 
 /** Convert a NetworkChannel from discover to a WorkspaceSession for the thread UI. */
+/**
+ * A channel's participants come back as bare agent names or as
+ * `openagents:<name>` addresses, depending on who added them (the UI, an agent,
+ * the voice console). Every lookup downstream — online status, avatars, master —
+ * is by bare agent name, so an address-form participant used to read as an
+ * unknown, offline agent ("No agent in this thread is online" on a thread whose
+ * agent was mid-task).
+ */
+const bareAgentName = (p: string) => p.replace(/^openagents:/, '');
+
 export function networkChannelToSession(ch: NetworkChannel, workspaceId: string): WorkspaceSession {
   const name = ch.address.replace(/^channel\//, '');
+  const participants = Array.from(new Set((ch.participants || []).map(bareAgentName)));
   return {
     sessionId: name,
     workspaceId,
     createdBy: null,
-    title: ch.title || defaultSessionTitle(ch.participants),
+    title: ch.title || defaultSessionTitle(participants),
     status: ch.status || 'active',
     starred: ch.starred || false,
-    participants: ch.participants,
-    master: ch.master,
+    participants,
+    master: ch.master ? bareAgentName(ch.master) : ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
     workflowId: ch.workflow_id ?? null,
