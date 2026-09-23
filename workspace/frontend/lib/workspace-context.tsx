@@ -128,6 +128,8 @@ interface WorkspaceContextValue {
   selectedKnowledgeId: string | null;
   currentFilePath: string;
   currentSessionId: string | null;
+  /** Thread the voice assistant just touched; drives a brief visual ping in the list. */
+  pingedSessionId: string | null;
   loading: boolean;
   error: string | null;
   lastMessageBySession: Record<string, LastMessageInfo>;
@@ -338,9 +340,15 @@ export function WorkspaceProvider({
 
   // Voice console → UI: when the voice assistant creates or posts into a
   // thread, it writes 'openagents:focus-thread' (same-device only — see
-  // openagents:active-thread above for the reverse direction). Surfaced as a
-  // toast rather than an auto-navigate so it never yanks the human away from
-  // whatever they're actively doing.
+  // openagents:active-thread above for the reverse direction). Never
+  // auto-navigates, so it can't yank the human away from what they're doing:
+  //  - every touch pings the thread's row in the list (visible even when the
+  //    thread is the one already open, where a toast would say nothing new);
+  //  - a thread that ISN'T open also gets a toast with a View action.
+  const [pingedSessionId, setPingedSessionId] = useState<string | null>(null);
+  const pingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (pingTimerRef.current) clearTimeout(pingTimerRef.current); }, []);
+
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== 'openagents:focus-thread' || !e.newValue) return;
@@ -351,9 +359,16 @@ export function WorkspaceProvider({
         return;
       }
       const { channel, title } = payload;
-      if (!channel || channel === currentSessionId) return;
-      toast('New thread opened by voice', {
-        description: title || channel,
+      if (!channel) return;
+
+      setPingedSessionId(channel);
+      if (pingTimerRef.current) clearTimeout(pingTimerRef.current);
+      pingTimerRef.current = setTimeout(() => setPingedSessionId(null), 6000);
+
+      if (channel === currentSessionId) return;
+      const known = sessionsRef.current.find((s) => s.sessionId === channel)?.title;
+      toast(title ? 'Voice created a thread' : 'Voice posted to a thread', {
+        description: title || known || channel,
         action: {
           label: 'View',
           onClick: () => setCurrentSessionId(channel),
@@ -1677,6 +1692,7 @@ export function WorkspaceProvider({
         selectedFileId,
         selectedKnowledgeId,
         currentSessionId,
+        pingedSessionId,
         loading,
         error,
         lastMessageBySession,

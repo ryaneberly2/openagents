@@ -127,6 +127,8 @@ interface ThreadRowProps {
   session: WorkspaceSession;
   agents: WorkspaceAgent[];
   isSelected: boolean;
+  /** The voice assistant just touched this thread — see workspace-context.tsx. */
+  isPinged: boolean;
   isUnread: boolean;
   isRunning: boolean;
   isCompleted: boolean;
@@ -141,14 +143,21 @@ interface ThreadRowProps {
 }
 
 function ThreadRow({
-  session, agents, isSelected, isUnread, isRunning, isCompleted, preview, previewIsStatus,
+  session, agents, isSelected, isPinged, isUnread, isRunning, isCompleted, preview, previewIsStatus,
   displayTime, shortcutKey, title, muted, onSelect, actions,
 }: ThreadRowProps) {
   const t = useT();
   const participants = agents.filter((a) => session.participants.includes(a.agentName));
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // The row may be scrolled out of the list; bring it into view when pinged.
+  useEffect(() => {
+    if (isPinged) rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [isPinged]);
 
   return (
     <div
+      ref={rowRef}
       role="listitem"
       tabIndex={0}
       aria-pressed={isSelected}
@@ -178,6 +187,8 @@ function ThreadRow({
         isCompleted && !isSelected &&
           'rounded-md border-transparent bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 animate-[glow_2s_ease-in-out_infinite]',
         muted && 'opacity-60',
+        // Last, so it wins over the selected/completed ring and fill.
+        isPinged && 'animate-pulse rounded-md border-transparent bg-emerald-500/15 ring-2 ring-inset ring-emerald-500',
       )}
     >
       {/* Unread indicator — a running thread pulses the same dot */}
@@ -265,7 +276,7 @@ export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
     activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
-    unreadSessionIds, refreshAgents, refreshDMConversations,
+    unreadSessionIds, refreshAgents, refreshDMConversations, pingedSessionId,
   } = useWorkspace();
   const { isMobile, openMobileDetail, openNewThread } = useLayout();
   const prompt = usePrompt();
@@ -578,6 +589,7 @@ export function ThreadList() {
           session={session}
           agents={agents}
           isSelected={session.sessionId === currentSessionId}
+          isPinged={session.sessionId === pingedSessionId}
           isUnread={unreadSessionIds.has(session.sessionId)}
           isRunning={activeSessionIds.has(session.sessionId)}
           isCompleted={
