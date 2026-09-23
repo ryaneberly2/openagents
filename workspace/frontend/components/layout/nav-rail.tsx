@@ -37,6 +37,7 @@ import { NotificationsMenu } from './notifications-menu';
 import { QrcodeMenu } from './qrcode-menu';
 import { UserMenu } from './user-menu';
 import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
+import { VoiceLive } from '@/components/voice/voice-live';
 
 interface RailItem {
   mode: ViewMode;
@@ -274,7 +275,7 @@ export function NavRail() {
         <div
           className={cn(
             'flex items-center',
-            showLabels ? 'w-full gap-2 px-1' : 'justify-center',
+            showLabels ? 'w-full gap-2 px-1' : 'flex-col justify-center gap-2',
           )}
         >
           <span
@@ -302,6 +303,10 @@ export function NavRail() {
               {workspaceLabel}
             </span>
           )}
+
+          {/* The voice console is a web-served sibling app at /voice/ — the
+              desktop shell has no route to it. */}
+          {!desktopHost() && <VoiceLive showLabels={showLabels} />}
         </div>
       </SidebarHeader>
 
