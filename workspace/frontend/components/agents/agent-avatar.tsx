@@ -3,11 +3,6 @@ import { createAvatar } from '@dicebear/core';
 import { bigSmile } from '@dicebear/collection';
 import { cn } from '@/lib/utils';
 
-// "Electric" preset: vivid neon backgroundColor swatches for the bigSmile
-// style. Hex without '#' — that's what backgroundColor (a universal
-// DiceBear option, not bigSmile-specific) wants.
-const OA_PALETTE = ['00E5FF', '7B2FFF', 'FF2E9A', '39FF88', 'FFEA00'];
-
 // The built-in Yumi assistant has a fixed brand avatar instead of a generated
 // one. Its agent name is reserved/unique (provider "openagents"), so matching
 // on the name is sufficient to identify it wherever an avatar is rendered.
@@ -29,7 +24,7 @@ export function AgentAvatar({ name, size = 28, status, showStatus = false, class
   // different names always render differently). Memoized since createAvatar
   // does real work (SVG generation) on every call.
   const dataUri = useMemo(
-    () => createAvatar(bigSmile, { seed: name, backgroundColor: OA_PALETTE }).toDataUri(),
+    () => createAvatar(bigSmile, { seed: name }).toDataUri(),
     [name],
   );
   return (

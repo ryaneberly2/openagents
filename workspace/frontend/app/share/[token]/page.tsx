@@ -11,10 +11,6 @@ import { useFormatters, useT } from '@/lib/i18n';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 
-// Same "electric" bigSmile preset as AgentAvatar — unified across both
-// usages rather than kept as two distinct palettes (2026-09-21).
-const OA_PALETTE = ['00E5FF', '7B2FFF', 'FF2E9A', '39FF88', 'FFEA00'];
-
 interface SnapshotData {
   id: string;
   title: string | null;
@@ -25,7 +21,7 @@ interface SnapshotData {
 
 function SenderAvatar({ name, size = 28 }: { name: string; size?: number }) {
   const dataUri = useMemo(
-    () => createAvatar(bigSmile, { seed: name, backgroundColor: OA_PALETTE }).toDataUri(),
+    () => createAvatar(bigSmile, { seed: name }).toDataUri(),
     [name],
   );
   return (
