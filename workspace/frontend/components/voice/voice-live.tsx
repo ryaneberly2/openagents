@@ -39,14 +39,16 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const popupRef = React.useRef<Window | null>(null);
   const readyRef = React.useRef(false);
-  // Live was clicked before the console had loaded; start it on 'voice:ready'.
-  const pendingLiveRef = React.useRef(false);
+  // Live was requested before the console had loaded; start it on 'voice:ready'.
+  // `resume` marks a hand-off from a session that was already live (pop-out),
+  // which the console treats differently — see App.tsx.
+  const pendingLiveRef = React.useRef<{ resume: boolean } | null>(null);
 
   const popupIsOpen = () => !!popupRef.current && !popupRef.current.closed;
   const target = (): Window | null =>
     popupIsOpen() ? popupRef.current : iframeRef.current?.contentWindow ?? null;
-  const send = (on: boolean) =>
-    target()?.postMessage({ type: 'voice:set-live', on }, window.location.origin);
+  const send = (on: boolean, resume = false) =>
+    target()?.postMessage({ type: 'voice:set-live', on, resume }, window.location.origin);
 
   React.useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -58,8 +60,9 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
       if (e.data.type === 'voice:ready') {
         readyRef.current = true;
         if (pendingLiveRef.current) {
-          pendingLiveRef.current = false;
-          send(true);
+          const { resume } = pendingLiveRef.current;
+          pendingLiveRef.current = null;
+          send(true, resume);
         }
       } else if (e.data.type === 'voice:state') {
         setLive(!!e.data.live);
@@ -91,7 +94,7 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
     if (readyRef.current && target()) {
       send(true);
     } else {
-      pendingLiveRef.current = true;
+      pendingLiveRef.current = { resume: false };
       setMounted(true);
     }
   };
@@ -109,12 +112,15 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
 
   const moveToWindow = () => {
     const win = window.open(VOICE_URL, POPOUT_NAME, POPOUT_FEATURES);
-    if (!win) return; // blocked by the browser; keep the pane
+    if (!win) return; // blocked by the browser; keep the pane and its session
     popupRef.current = win;
-    // The new window starts idle; the docked console (and any session in it) goes.
     readyRef.current = false;
-    setLive(false);
-    setSpeaking(false);
+    // A Gemini session can't be handed between pages, so "preserving" live means
+    // the window starts a fresh one as soon as it loads. Unmounting the docked
+    // console closes its socket, which closes its session server-side. The Live
+    // button keeps showing live throughout; the window's own state reports
+    // replace it. (The conversation's context doesn't carry over — memory does.)
+    if (live) pendingLiveRef.current = { resume: true };
     setPaneOpen(false);
     setMounted(false);
   };
