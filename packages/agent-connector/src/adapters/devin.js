@@ -268,12 +268,17 @@ class DevinAdapter extends BaseAdapter {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
     this._channelSessions = {}; // channel -> devin ACP session id
+    // channel -> model the stored session was created on (null = default).
+    // Kept in a sibling file so the sessions file keeps its plain
+    // channel -> id shape. See _ensureSession for why it matters.
+    this._channelSessionModels = {};
     this._peers = {}; // channel -> AcpPeer
     this._stoppingChannels = new Set();
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_devin.json`,
     );
+    this._sessionModelsFile = this._sessionsFile.replace(/\.json$/, '_models.json');
     this._loadSessions();
     this._devinBin = null;
     // Populated best-effort by _refreshAvailableModels() (see run()); null
@@ -380,6 +385,12 @@ class DevinAdapter extends BaseAdapter {
     } catch {
       this._log('Could not load sessions file, starting fresh');
     }
+    try {
+      if (fs.existsSync(this._sessionModelsFile)) {
+        const data = JSON.parse(fs.readFileSync(this._sessionModelsFile, 'utf-8'));
+        if (data && typeof data === 'object') Object.assign(this._channelSessionModels, data);
+      }
+    } catch {}
   }
 
   _saveSessions() {
@@ -387,7 +398,15 @@ class DevinAdapter extends BaseAdapter {
       const dir = path.dirname(this._sessionsFile);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
+      fs.writeFileSync(this._sessionModelsFile, JSON.stringify(this._channelSessionModels));
     } catch {}
+  }
+
+  /** Drop a channel's stored session (and its recorded model) so the next turn starts fresh. */
+  _forgetSession(channel) {
+    delete this._channelSessions[channel];
+    delete this._channelSessionModels[channel];
+    this._saveSessions();
   }
 
   // ------------------------------------------------------------------
@@ -561,12 +580,23 @@ class DevinAdapter extends BaseAdapter {
       // nothing for an already-open channel (found 2026-09-21). Same fix as
       // claude.js's own modelStale check: compare against what this peer
       // was actually spawned with, and if the picker has moved on, kill it
-      // and fall through to a fresh spawn — session/load resumes the
-      // conversation below, so nothing is lost, only the model changes.
+      // and fall through to a fresh spawn.
+      //
+      // The respawn must also start a NEW session: a session/load'd session
+      // keeps the model it was created on, whatever --model the process was
+      // started with. Seen live 2026-09-24 — forge-2-devin switched from
+      // `swe` (weekly quota exhausted) to `swe-2-high`, respawned with the new
+      // flag, resumed the old session, and still hit the `swe` quota; a fresh
+      // session on swe-2-high worked. So a model change costs the Devin-side
+      // conversation memory (the channel's own history is untouched).
       const currentModel = this.modelLabel() || null;
       if ((existing.spawnModel || null) === currentModel) return existing;
-      this._log(`Model changed to ${currentModel || '(default)'} for ${channel} — respawning with session/load`);
+      this._log(`Model changed to ${currentModel || '(default)'} for ${channel} — respawning with a new session`);
       await this._stopProcess(existing.proc);
+      if (this._channelSessions[channel]) {
+        this._forgetSession(channel);
+        try { await this.sendStatus(channel, `Model changed to ${currentModel || 'the default'} — starting a new Devin session.`); } catch {}
+      }
     }
     delete this._peers[channel];
 
@@ -657,6 +687,19 @@ class DevinAdapter extends BaseAdapter {
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     const mcpServer = this._resolveWorkspaceMcpServer(channel);
     const mcpServers = mcpServer ? [mcpServer] : [];
+
+    // The model changed while no peer was running (daemon restart, idle
+    // reap), so _ensurePeer's own check never saw it: the stored session was
+    // created on a different model, and resuming it would keep that model
+    // (see _ensurePeer). Sessions from before models were recorded have no
+    // entry and resume as before.
+    const spawnModel = peer.spawnModel || null;
+    if (this._channelSessions[channel] && channel in this._channelSessionModels
+        && (this._channelSessionModels[channel] || null) !== spawnModel) {
+      this._log(`Stored session for ${channel} was created on ${this._channelSessionModels[channel] || '(default)'}, now ${spawnModel || '(default)'} — starting a new session`);
+      this._forgetSession(channel);
+      try { await this.sendStatus(channel, `Model changed to ${spawnModel || 'the default'} — starting a new Devin session.`); } catch {}
+    }
     const existingSessionId = this._channelSessions[channel];
 
     if (existingSessionId && peer.agentCapabilities && peer.agentCapabilities.loadSession) {
@@ -675,8 +718,7 @@ class DevinAdapter extends BaseAdapter {
       } catch (e) {
         peer.currentTurn = null;
         this._log(`Session resume rejected for ${channel} (${e.message}) — starting a fresh session`);
-        delete this._channelSessions[channel];
-        this._saveSessions();
+        this._forgetSession(channel);
         try { await this.sendStatus(channel, 'Could not resume the previous Devin session — starting a new one.'); } catch {}
       }
     }
@@ -688,6 +730,7 @@ class DevinAdapter extends BaseAdapter {
     peer.sessionId = result && result.sessionId;
     if (!peer.sessionId) throw new Error('Devin did not return a session id from session/new');
     this._channelSessions[channel] = peer.sessionId;
+    this._channelSessionModels[channel] = spawnModel;
     this._saveSessions();
     return { sessionId: peer.sessionId, isNew: true };
   }
@@ -878,8 +921,7 @@ class DevinAdapter extends BaseAdapter {
           delete this._peers[channel];
         }
         delete this._channelQueues[channel];
-        delete this._channelSessions[channel];
-        this._saveSessions();
+        this._forgetSession(channel);
         try { await this.sendResponse(channel, 'Session cleared. Send a new message to start fresh.'); } catch {}
       }
       return;

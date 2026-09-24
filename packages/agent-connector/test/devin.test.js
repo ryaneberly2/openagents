@@ -278,6 +278,7 @@ before(() => {
 });
 
 const SESSIONS_FILE = path.join(os.homedir(), '.openagents', 'sessions', 'ws-devin-test_devin-bot_devin.json');
+const SESSION_MODELS_FILE = SESSIONS_FILE.replace(/\.json$/, '_models.json');
 
 // Every adapter this file creates spawns real (fake-peer) child processes
 // that, by design, stay alive across turns (that is the whole point of a
@@ -303,6 +304,7 @@ after(async () => {
   // Windows. Not fatal — it's a tmp dir, the OS cleans it eventually.
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
   try { fs.rmSync(SESSIONS_FILE, { force: true }); } catch {}
+  try { fs.rmSync(SESSION_MODELS_FILE, { force: true }); } catch {}
 
   // Every adapter's peer process is stopped (and its stdio streams destroyed)
   // by the per-test afterEach above. Direct `process._getActiveHandles()`
@@ -322,6 +324,7 @@ after(async () => {
 
 beforeEach(() => {
   try { fs.rmSync(SESSIONS_FILE, { force: true }); } catch {}
+  try { fs.rmSync(SESSION_MODELS_FILE, { force: true }); } catch {}
 });
 
 function makeAdapter(extra = {}) {
@@ -648,20 +651,56 @@ describe('DevinAdapter — turn hard-timeout config', () => {
 });
 
 describe('DevinAdapter — workspace model picker', () => {
-  it('respawns an already-running peer when the workspace model picker changes, and resumes via session/load', async () => {
+  it('respawns an already-running peer when the workspace model picker changes, on a NEW session', async () => {
     const a = makeAdapter({ scenario: 'success' });
     await send(a, 'first message, default model');
     assert.equal(a._peers.thread.spawnModel, null);
+    const firstSession = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')).thread;
 
     a._captured.logs.length = 0;
     a._onControlAction('model.set', { model: 'claude-opus-5' });
     await send(a, 'second message, after picking a model');
 
     assert.ok(
-      a._captured.logs.some((l) => /Model changed to claude-opus-5 for thread — respawning with session\/load/.test(l)),
+      a._captured.logs.some((l) => /Model changed to claude-opus-5 for thread — respawning with a new session/.test(l)),
       `expected a respawn log, got: ${JSON.stringify(a._captured.logs)}`,
     );
     assert.equal(a._peers.thread.spawnModel, 'claude-opus-5');
+    // A resumed session keeps the model it was created on, so the switch must
+    // not session/load the old one.
+    const secondSession = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')).thread;
+    assert.notEqual(secondSession, firstSession, 'a model change must start a new session, not resume the old one');
+    assert.equal(JSON.parse(fs.readFileSync(SESSION_MODELS_FILE, 'utf-8')).thread, 'claude-opus-5');
+    assert.ok(a._captured.status.some((s) => /starting a new Devin session/.test(s)), 'the channel is told why its Devin session restarted');
+  });
+
+  it('starts a new session when the model changed while no peer was running', async () => {
+    const a = makeAdapter({ scenario: 'success' });
+    await send(a, 'first message, default model');
+    const firstSession = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')).thread;
+    assert.equal(JSON.parse(fs.readFileSync(SESSION_MODELS_FILE, 'utf-8')).thread, null);
+
+    // As after a daemon restart: no live peer, and the picker has moved on.
+    await a._stopProcess(a._peers.thread.proc);
+    delete a._peers.thread;
+    a._onControlAction('model.set', { model: 'swe-2-high' });
+    await send(a, 'message after the restart');
+
+    const secondSession = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')).thread;
+    assert.notEqual(secondSession, firstSession, 'the stored session was created on another model — must not be resumed');
+    assert.equal(JSON.parse(fs.readFileSync(SESSION_MODELS_FILE, 'utf-8')).thread, 'swe-2-high');
+  });
+
+  it('still resumes a stored session with no recorded model (created before models were recorded)', async () => {
+    const a = makeAdapter({ scenario: 'success' });
+    await send(a, 'first message');
+    const firstSession = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')).thread;
+    await a._stopProcess(a._peers.thread.proc);
+    delete a._peers.thread;
+    delete a._channelSessionModels.thread; // legacy: no entry at all
+
+    await send(a, 'follow up');
+    assert.equal(JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')).thread, firstSession);
   });
 
   it('does not respawn a live peer when the picker has not changed', async () => {
