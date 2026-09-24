@@ -5,7 +5,7 @@ import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
   BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Monitor, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Monitor, Plus, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -16,6 +16,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
@@ -195,7 +196,7 @@ export function NavRail() {
   } = useLayout();
   const {
     workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
-    onlineUsers, currentUser, tasks, setCurrentSessionId,
+    onlineUsers, currentUser, tasks, setCurrentSessionId, createSession,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
@@ -409,6 +410,28 @@ export function NavRail() {
                         />
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
                       </SidebarMenuButton>
+                      {/* "+": a new thread with just this agent, leading it —
+                          same as nav-agents.tsx (the mobile sheet's list).
+                          createSession selects the new thread itself.
+                          Expanded rail only; icon-only has no room for it. */}
+                      {showLabels && (
+                        <SidebarMenuAction
+                          showOnHover
+                          title={t('nav.newThreadWith', { name: agentLabel(agent) })}
+                          aria-label={t('nav.newThreadWith', { name: agentLabel(agent) })}
+                          onClick={() => {
+                            createSession({
+                              title: `New Thread with ${agentLabel(agent)}`,
+                              master: agent.agentName,
+                              participants: [agent.agentName],
+                            })
+                              .then(() => openView('threads'))
+                              .catch(() => {});
+                          }}
+                        >
+                          <Plus />
+                        </SidebarMenuAction>
+                      )}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
