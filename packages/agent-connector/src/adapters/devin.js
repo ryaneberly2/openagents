@@ -59,19 +59,21 @@ const IDLE_NOTICE_MS = 45 * 1000;
 const IDLE_NOTICE_REPEAT_MS = 3 * 60 * 1000;
 // A turn with truly no activity for this long is almost certainly wedged
 // (peer stopped responding without exiting) — cut it loose rather than hold
-// the channel busy forever. Raised from 45 to 90 min 2026-09-19: a real
-// forge-devin task (ADO 523, env.sh up gimli) hit 45 min twice in a row while
-// still actively working, not stalled — Devin's own log showed it building,
-// deploying, and polling right up to the millisecond the timeout killed it.
-// Investigated why: gimli's own deploy pipeline isn't slow (each attempt
-// finishes in single-digit minutes, ~5-9 for the .NET build+containerize
-// step, even on failure) — the wall-clock cost is a real iterative
-// debug loop, 13 deploy attempts in under an hour with several "pod never
-// became healthy" failures Devin had to diagnose and fix between retries.
-// That's expected behavior for real feature work with a live health-check
-// gate, not a bug to route around — the timeout just needs enough room for
-// it.
-const TURN_HARD_TIMEOUT_MS = 90 * 60 * 1000;
+// the channel busy forever. History: raised from 45 to 90 min 2026-09-19
+// after a real forge-devin task (ADO 523, env.sh up gimli) hit 45 min twice
+// in a row while still actively working, not stalled — Devin's own log
+// showed it building, deploying, and polling right up to the millisecond
+// the timeout killed it. Investigated why: gimli's own deploy pipeline isn't
+// slow (each attempt finishes in single-digit minutes even on failure) —
+// the wall-clock cost was a real iterative debug loop, 13 deploy attempts in
+// under an hour. Raised again to 8 hours 2026-09-21 (a real multi-hour
+// verification cycle needed far more room than 90 min ever gave it) and
+// made per-agent configurable via DEVIN_TURN_TIMEOUT_MINUTES (see
+// _turnHardTimeoutMs() and registry/devin.json) — one fixed ceiling can
+// never fit every workload this adapter gets asked to run; the silence
+// watchdog below is what actually catches a genuinely wedged turn quickly,
+// so this hard cap only needs to be generous, not tight.
+const TURN_HARD_TIMEOUT_MS_DEFAULT = 8 * 60 * 60 * 1000;
 // A silence watchdog, distinct from the hard timeout above: fires much
 // sooner (5 min, matching claude.js's and openworker.js's own silence
 // watchdogs), but ONLY when nothing is legitimately holding the turn up.
@@ -80,7 +82,7 @@ const TURN_HARD_TIMEOUT_MS = 90 * 60 * 1000;
 // goes completely silent, no ACP traffic at all, for the ENTIRE duration of
 // a long exec tool call (the .NET build alone ran ~9 minutes with nothing
 // reported). A naive silence timer would kill exactly the long-but-healthy
-// turns TURN_HARD_TIMEOUT_MS was just raised to tolerate. So this only
+// turns the hard timeout exists to tolerate. So this only
 // counts silence while _hasActiveToolCall() is false — i.e. Devin is
 // supposed to be actively reasoning/responding, not waiting on a tool.
 const SILENCE_WATCHDOG_MS = 5 * 60 * 1000;
@@ -467,6 +469,22 @@ class DevinAdapter extends BaseAdapter {
     return (this.agentEnv || process.env).DEVIN_PERMISSION_MODE || 'smart';
   }
 
+  /**
+   * Per-agent override for the turn hard-timeout (see
+   * TURN_HARD_TIMEOUT_MS_DEFAULT's own comment for why this needs to be
+   * configurable rather than one fixed constant). Minutes, not milliseconds
+   * — a workspace config field is for a human to type into, and "480" reads
+   * a lot more sanely there than "28800000". Any unset, non-numeric, or
+   * non-positive value falls back to the default rather than erroring —
+   * this must never be able to break startup over a typo in a workspace
+   * setting.
+   */
+  _turnHardTimeoutMs() {
+    const raw = (this.agentEnv || process.env).DEVIN_TURN_TIMEOUT_MINUTES;
+    const minutes = raw != null && raw !== '' ? Number(raw) : NaN;
+    return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 * 1000 : TURN_HARD_TIMEOUT_MS_DEFAULT;
+  }
+
   // ------------------------------------------------------------------
   // Workspace MCP server wiring (best-effort — Devin gets the same
   // workspace_* tools every other MCP-mode adapter gets, via ACP's native
@@ -534,7 +552,22 @@ class DevinAdapter extends BaseAdapter {
 
   async _ensurePeer(channel) {
     const existing = this._peers[channel];
-    if (existing && !existing.dead) return existing;
+    if (existing && !existing.dead) {
+      // The workspace model picker (`model.set` -> BaseAdapter.workspaceModel,
+      // see its own comment: "ones with a staleness check (claude.js)
+      // respawn on the next message") updates the field, but nothing acted
+      // on it for Devin — a persistent peer keeps running the model it was
+      // spawned with forever, so picking a new model in the UI silently did
+      // nothing for an already-open channel (found 2026-09-21). Same fix as
+      // claude.js's own modelStale check: compare against what this peer
+      // was actually spawned with, and if the picker has moved on, kill it
+      // and fall through to a fresh spawn — session/load resumes the
+      // conversation below, so nothing is lost, only the model changes.
+      const currentModel = this.modelLabel() || null;
+      if ((existing.spawnModel || null) === currentModel) return existing;
+      this._log(`Model changed to ${currentModel || '(default)'} for ${channel} — respawning with session/load`);
+      await this._stopProcess(existing.proc);
+    }
     delete this._peers[channel];
 
     const bin = this._findDevinBinary();
@@ -575,6 +608,7 @@ class DevinAdapter extends BaseAdapter {
 
     const peer = new AcpPeer({ proc, log: (m) => this._log(`[devin:${channel}] ${m}`) });
     peer.channel = channel;
+    peer.spawnModel = configuredModel || null;
     peer.onPermissionRequest = (params) => this._onPermissionRequest(channel, params);
     peer.onSessionUpdate = (params) => this._onSessionUpdate(channel, params);
     this._peers[channel] = peer;
@@ -1105,7 +1139,7 @@ class DevinAdapter extends BaseAdapter {
         response = await Promise.race([
           peer.request((id) => acp.buildPromptRequest(id, { sessionId: peer.sessionId, text: promptText })),
           new Promise((_, reject) => {
-            hardTimer = setTimeout(() => reject(new Error('Devin turn exceeded the maximum allowed duration and was aborted.')), TURN_HARD_TIMEOUT_MS);
+            hardTimer = setTimeout(() => reject(new Error('Devin turn exceeded the maximum allowed duration and was aborted.')), this._turnHardTimeoutMs());
           }),
           new Promise((_, reject) => { wedgeReject = reject; }),
         ]);

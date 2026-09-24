@@ -67,6 +67,11 @@
       "name": "DEVIN_PERMISSION_MODE",
       "description": "How this agent auto-answers Devin's ACP permission requests (nobody is attached to approve them interactively): smart (default — approves once, never remembers, and narrates riskier approvals to the channel), accept-edits (auto-approves file edits, narrates everything else), dangerous/yolo/bypass (approves everything silently), autonomous (like bypass, and also passes --sandbox)",
       "required": false
+    },
+    {
+      "name": "DEVIN_TURN_TIMEOUT_MINUTES",
+      "description": "How long a single turn (one message) may run before it's treated as wedged and force-restarted. In minutes — e.g. \"480\" for 8 hours (the default). A real multi-step task (a full build+deploy+test cycle, an iterative debug loop) can legitimately run for hours; a much faster silence watchdog (a few minutes of dead air with no tool call running) is what actually catches a genuinely stuck turn, so raising this is safe. Leave blank for the default; any non-positive or non-numeric value also falls back to it.",
+      "required": false
     }
   ],
   "models": [

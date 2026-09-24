@@ -628,6 +628,55 @@ describe('DevinAdapter — silence watchdog and auto-recovery', () => {
   });
 });
 
+describe('DevinAdapter — turn hard-timeout config', () => {
+  it('defaults to 8 hours with no override', () => {
+    const a = makeAdapter();
+    assert.equal(a._turnHardTimeoutMs(), 8 * 60 * 60 * 1000);
+  });
+
+  it('honors a valid DEVIN_TURN_TIMEOUT_MINUTES override', () => {
+    const a = makeAdapter({ env: { DEVIN_TURN_TIMEOUT_MINUTES: '30' } });
+    assert.equal(a._turnHardTimeoutMs(), 30 * 60 * 1000);
+  });
+
+  it('falls back to the default on an invalid or non-positive override, never throws', () => {
+    for (const bad of ['0', '-5', 'not-a-number', '']) {
+      const a = makeAdapter({ env: { DEVIN_TURN_TIMEOUT_MINUTES: bad } });
+      assert.equal(a._turnHardTimeoutMs(), 8 * 60 * 60 * 1000, `bad value ${JSON.stringify(bad)} should fall back to default`);
+    }
+  });
+});
+
+describe('DevinAdapter — workspace model picker', () => {
+  it('respawns an already-running peer when the workspace model picker changes, and resumes via session/load', async () => {
+    const a = makeAdapter({ scenario: 'success' });
+    await send(a, 'first message, default model');
+    assert.equal(a._peers.thread.spawnModel, null);
+
+    a._captured.logs.length = 0;
+    a._onControlAction('model.set', { model: 'claude-opus-5' });
+    await send(a, 'second message, after picking a model');
+
+    assert.ok(
+      a._captured.logs.some((l) => /Model changed to claude-opus-5 for thread — respawning with session\/load/.test(l)),
+      `expected a respawn log, got: ${JSON.stringify(a._captured.logs)}`,
+    );
+    assert.equal(a._peers.thread.spawnModel, 'claude-opus-5');
+  });
+
+  it('does not respawn a live peer when the picker has not changed', async () => {
+    const a = makeAdapter({ scenario: 'success' });
+    await send(a, 'first message');
+    const firstPeer = a._peers.thread;
+
+    a._captured.logs.length = 0;
+    await send(a, 'second message, same model as before');
+
+    assert.ok(!a._captured.logs.some((l) => /respawning/.test(l)), 'no model change — must not respawn');
+    assert.equal(a._peers.thread, firstPeer, 'the same peer object should still be in use');
+  });
+});
+
 describe('DevinAdapter — redaction', () => {
   it('never logs the workspace token or an API key value across a full start-to-ready sequence', async () => {
     const a = makeAdapter({ scenario: 'success', agentEnv: { WINDSURF_API_KEY: 'sk-supersecretvalue1234567890abcdefg' } });
