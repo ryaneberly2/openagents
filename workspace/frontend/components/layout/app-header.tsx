@@ -116,7 +116,7 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
 function ThreadTitle() {
-  const { sessions, currentSessionId, renameSession } = useWorkspace()
+  const { sessions, currentSessionId, renameSession, titleEditSessionId, clearTitleEdit } = useWorkspace()
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -124,6 +124,20 @@ function ThreadTitle() {
 
   const isDM = currentSessionId?.startsWith("dm:") ?? false
   const session = sessions.find((s) => s.sessionId === currentSessionId)
+
+  // A thread just created with createSession({ editTitle: true }) (the "+" on
+  // an agent row) opens straight into rename with the title selected, so the
+  // user can type the real title immediately.
+  const hasSession = !!session
+  useEffect(() => {
+    if (!titleEditSessionId || titleEditSessionId !== currentSessionId || !hasSession) return
+    clearTitleEdit()
+    // Same as startEditing below (declared after the DM early return, so not callable here).
+    setDraft(session?.title || "")
+    setEditing(true)
+    setTimeout(() => inputRef.current?.select(), 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titleEditSessionId, currentSessionId, hasSession])
 
   if (isDM) {
     // Title the DM by the counterpart alone. A pair that includes the human

@@ -146,10 +146,13 @@ interface WorkspaceContextValue {
   setCurrentSessionId: (id: string | null, options?: { skipFocus?: boolean }) => void;
   /** Read-and-clear: was the most recent setCurrentSessionId asked to skip auto-focus? */
   consumeSkipFocus: () => boolean;
+  /** Thread whose header title should open in edit mode once it's shown (set by createSession({ editTitle: true })). */
+  titleEditSessionId: string | null;
+  clearTitleEdit: () => void;
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
-  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => Promise<WorkspaceSession>;
+  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; editTitle?: boolean }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
   requestFirstThread: (agentName: string) => void;
@@ -337,6 +340,8 @@ export function WorkspaceProvider({
     skipFocusRef.current = false;
     return v;
   }, []);
+  const [titleEditSessionId, setTitleEditSessionId] = useState<string | null>(null);
+  const clearTitleEdit = useCallback(() => setTitleEditSessionId(null), []);
 
   // Voice console → UI: when the voice assistant creates or posts into a
   // thread, it writes 'openagents:focus-thread' (same-device only — see
@@ -1448,7 +1453,7 @@ export function WorkspaceProvider({
     return () => clearTimeout(timeout);
   }, [refreshDiscovery]);
 
-  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => {
+  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string; editTitle?: boolean }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
     // single-agent DM path). The default "dynamic" orchestration mode needs no
     // leader, so threads created from the picker start with none — a leader can
@@ -1464,7 +1469,10 @@ export function WorkspaceProvider({
     });
     capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom });
     setSessions((prev) => [session, ...prev]);
-    setCurrentSessionId(session.sessionId);
+    // editTitle: the header title takes the cursor (ThreadTitle), so the chat
+    // input must not grab it on open.
+    if (opts?.editTitle) setTitleEditSessionId(session.sessionId);
+    setCurrentSessionId(session.sessionId, { skipFocus: !!opts?.editTitle });
     return session;
   }, [agents]);
 
@@ -1708,6 +1716,8 @@ export function WorkspaceProvider({
         stopAllAgents,
         setCurrentSessionId,
         consumeSkipFocus,
+        titleEditSessionId,
+        clearTitleEdit,
         setSelectedFileId,
         setSelectedKnowledgeId,
         currentFilePath,

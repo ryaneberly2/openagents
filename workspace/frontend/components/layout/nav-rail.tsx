@@ -424,6 +424,7 @@ export function NavRail() {
                               title: `New Thread with ${agentLabel(agent)}`,
                               master: agent.agentName,
                               participants: [agent.agentName],
+                              editTitle: true,
                             })
                               .then(() => openView('threads'))
                               .catch(() => {});
