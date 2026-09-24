@@ -71,6 +71,7 @@ export const messages: Messages = {
     thisComputer: '此电脑',
     collaboration: '协作',
     agentsWithCount: '智能体({online}/{total})',
+    newThreadWith: '与 {name} 新建会话',
     onlineWithCount: '在线({count})',
     you: '{name}(你)',
     workspaceFallback: '工作区',

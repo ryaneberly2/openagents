@@ -1,12 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChevronDown, Users } from 'lucide-react';
+import { ChevronDown, Plus, Users } from 'lucide-react';
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
@@ -27,7 +28,7 @@ import { useLayout } from './layout-context';
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { setSelectedAgentName, openMobileDetail } = useLayout();
-  const { agents, onlineUsers, currentUser, setCurrentSessionId } = useWorkspace();
+  const { agents, onlineUsers, currentUser, setCurrentSessionId, createSession } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
 
@@ -89,6 +90,29 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                     />
                     <span className="min-w-0 truncate">{agentLabel(agent)}</span>
                   </SidebarMenuButton>
+                  {/* "+" : a new thread with just this agent in it (and leading
+                      it, as the onboarding first-thread does), then open it.
+                      Uses the real agent_name for participants — a display
+                      name there would add a member nobody answers for. */}
+                  <SidebarMenuAction
+                    showOnHover
+                    title={t('nav.newThreadWith', { name: agentLabel(agent) })}
+                    aria-label={t('nav.newThreadWith', { name: agentLabel(agent) })}
+                    onClick={() => {
+                      createSession({
+                        title: `New Thread with ${agentLabel(agent)}`,
+                        master: agent.agentName,
+                        participants: [agent.agentName],
+                      })
+                        .then(() => {
+                          openMobileDetail();
+                          onNavigate?.();
+                        })
+                        .catch(() => {});
+                    }}
+                  >
+                    <Plus />
+                  </SidebarMenuAction>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

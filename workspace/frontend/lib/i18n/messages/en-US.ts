@@ -78,6 +78,7 @@ export const messages = {
     thisComputer: 'This Computer',
     collaboration: 'Collaboration',
     agentsWithCount: 'Agents ({online}/{total})',
+    newThreadWith: 'New thread with {name}',
     onlineWithCount: 'Online ({count})',
     you: '{name} (you)',
     workspaceFallback: 'Workspace',
