@@ -6,8 +6,42 @@ import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { getAgentColor } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
+import { workspaceApi } from '@/lib/api';
+import { useWorkspace } from '@/lib/workspace-context';
+import { useLayout } from '@/components/layout/layout-context';
 import { MermaidBlock } from './mermaid-block';
 import { getMermaidSource, hasOpenMermaidFence } from './mermaid-utils';
+import { fileIdFromHref, linkifyWorkspaceFileUrls } from './file-links';
+
+/**
+ * A workspace file quoted in a message (see file-links.ts). Click opens it in
+ * the Files preview when the file list has it loaded; otherwise — and on
+ * ctrl/cmd/middle-click — the href is the download URL carrying the viewer's
+ * own session token, so no token ever has to appear in the message.
+ */
+function FileLink({ fileId, children }: { fileId: string; children: ReactNode }) {
+  const { files, setSelectedFileId } = useWorkspace();
+  const { openView } = useLayout();
+  const inList = files.some((f) => f.id === fileId);
+  const name = files.find((f) => f.id === fileId)?.filename;
+  return (
+    <a
+      href={workspaceApi.getFileUrl(fileId)}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={name ? `Open ${name}` : 'Open file'}
+      onClick={(e) => {
+        if (!inList || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        setSelectedFileId(fileId);
+        openView('files');
+      }}
+      className="text-primary underline underline-offset-2 hover:text-primary/80"
+    >
+      {children === 'Open file' && name ? name : children}
+    </a>
+  );
+}
 
 // Stable plugin arrays — avoids re-creating on every render
 const remarkPlugins = [remarkGfm];
@@ -68,6 +102,7 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
 
 export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels }: MarkdownContentProps) {
   const hasStreamingMermaidFence = hasOpenMermaidFence(content);
+  const renderedContent = useMemo(() => linkifyWorkspaceFileUrls(content), [content]);
 
   const components: Components = useMemo(() => ({
     // Block elements
@@ -159,7 +194,10 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
     },
 
     // Links
-    a: ({ href, children }) => (
+    a: ({ href, children }) => {
+      const fileId = fileIdFromHref(href);
+      if (fileId) return <FileLink fileId={fileId}>{children}</FileLink>;
+      return (
       <a
         href={href}
         target="_blank"
@@ -168,7 +206,8 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       >
         {children}
       </a>
-    ),
+      );
+    },
 
     // Inline
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
@@ -183,7 +222,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
         rehypePlugins={rehypePlugins}
         components={components}
       >
-        {content}
+        {renderedContent}
       </ReactMarkdown>
     </div>
   );
