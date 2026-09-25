@@ -72,7 +72,11 @@ export function Wrapper() {
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
     railDragWidth, filesSection, selectedAgentName, setSelectedAgentName,
   } = useLayout();
-  const { monitorMode, agents, loading, sessions, currentSessionId } = useWorkspace();
+  const { monitorMode, agents, loading, sessions, currentSessionId, reportViewMode } = useWorkspace();
+
+  // The presence heartbeat lives in WorkspaceProvider, outside LayoutProvider,
+  // so the current view is reported up from here (lib/active-thread.ts).
+  useEffect(() => { reportViewMode(viewMode); }, [viewMode, reportViewMode]);
 
   // Auto-dismiss the docked agent-profile panel when the user navigates away:
   // switching to another thread (incl. starting a new chat) or to another view

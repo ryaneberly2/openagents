@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { workspaceApi } from './api';
-import { activeThreadPayload } from './active-thread';
+import { activeThreadPayload, activeViewPayload, type ActiveView } from './active-thread';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
@@ -150,6 +150,8 @@ interface WorkspaceContextValue {
   /** Thread whose header title should open in edit mode once it's shown (set by createSession({ editTitle: true })). */
   titleEditSessionId: string | null;
   clearTitleEdit: () => void;
+  /** Called by the layout (Wrapper) with the current main view, for the presence heartbeat's active_view. */
+  reportViewMode: (mode: string) => void;
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
@@ -284,7 +286,16 @@ export function WorkspaceProvider({
   sessionsRef.current = sessions;
   const [currentSessionId, _setCurrentSessionId] = useState<string | null>(null);
   // Sends one presence heartbeat now; set while the presence effect is live.
-  // (The heartbeat reads the open thread from currentSessionIdRef, below.)
+  // (The heartbeat reads the open thread from currentSessionIdRef, below, and
+  // the whole view from activeViewRef, rebuilt every render near the end.)
+  const viewModeRef = useRef<string | null>(null);
+  const [viewModeTick, setViewModeTick] = useState(0);
+  const reportViewMode = useCallback((mode: string) => {
+    if (viewModeRef.current === mode) return;
+    viewModeRef.current = mode;
+    setViewModeTick((t) => t + 1);
+  }, []);
+  const activeViewRef = useRef<() => ActiveView>(() => ({ mode: null }));
   const presenceNowRef = useRef<(() => void) | null>(null);
 
   // ── Thread read state ──
@@ -483,10 +494,13 @@ export function WorkspaceProvider({
           user_id: currentUser.id,
           user_name: currentUser.name,
           sender_type: 'human',
-          // The thread this tab has open (lib/active-thread.ts), for MCP clients.
+          // What this tab is showing (lib/active-thread.ts), for MCP clients:
+          // active_thread = the selected thread (kept for older readers),
+          // active_view = the current view and what is open in it.
           active_thread: type === 'workspace.user.left'
             ? null
             : activeThreadPayload(currentSessionIdRef.current, sessionsRef.current),
+          active_view: type === 'workspace.user.left' ? null : activeViewRef.current(),
         },
         visibility: 'network',
       }).catch(() => {});
@@ -566,12 +580,12 @@ export function WorkspaceProvider({
     };
   }, [currentUser.id, currentUser.name]);
 
-  // Publish a thread switch right away instead of at the next 15 s heartbeat,
-  // debounced so clicking through several threads sends one event.
+  // Publish a switch (thread, view, file, browser tab) right away instead of at
+  // the next 15 s heartbeat, debounced so clicking through several sends one event.
   useEffect(() => {
     const t = window.setTimeout(() => presenceNowRef.current?.(), 300);
     return () => window.clearTimeout(t);
-  }, [currentSessionId]);
+  }, [currentSessionId, viewModeTick, selectedFileId, currentFilePath, selectedBrowserTabId]);
 
   const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
     if (!isStatus || /stopped|stopping failed/i.test(content)) {
@@ -1707,6 +1721,19 @@ export function WorkspaceProvider({
     }
   }, [completedSessionIds]);
 
+  // Rebuilt every render so the presence heartbeat (set up once per user)
+  // always reads the current view.
+  activeViewRef.current = () => activeViewPayload({
+    mode: viewModeRef.current,
+    sessionId: currentSessionId,
+    sessions,
+    selectedFileId,
+    files,
+    currentFilePath,
+    selectedBrowserTabId,
+    browserTabs,
+  });
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -1739,6 +1766,7 @@ export function WorkspaceProvider({
         consumeSkipFocus,
         titleEditSessionId,
         clearTitleEdit,
+        reportViewMode,
         setSelectedFileId,
         setSelectedKnowledgeId,
         currentFilePath,
