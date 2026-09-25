@@ -12,6 +12,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { EnvRowKey } from '@/components/chat/env-pills';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -201,8 +202,10 @@ function ThreadRow({
         )}
       </div>
 
-      <div className="mt-0.5 shrink-0">
+      <div className="relative mt-0.5 shrink-0">
         <AvatarStack agents={participants} />
+        {/* Key badge when this thread holds an environment (env-pills.tsx; off unless configured) */}
+        <EnvRowKey sessionId={session.sessionId} />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">

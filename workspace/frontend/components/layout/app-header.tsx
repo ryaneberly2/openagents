@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
 import { ThreadIdBadge } from "@/components/chat/thread-id-badge"
+import { EnvPills } from "@/components/chat/env-pills"
 import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
@@ -237,7 +238,7 @@ export function AppHeader() {
       </h3>
     )
   } else if (viewMode === "threads" || viewMode === "routines") {
-    title = <><ThreadTitle /><ThreadIdBadge /></>
+    title = <><ThreadTitle /><ThreadIdBadge /><EnvPills /></>
   } else if (viewMode === "files") {
     const name =
       files.find((f) => f.id === selectedFileId)?.filename || currentFilePath
