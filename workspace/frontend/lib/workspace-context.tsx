@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { workspaceApi } from './api';
+import { activeThreadPayload } from './active-thread';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
@@ -282,6 +283,9 @@ export function WorkspaceProvider({
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const [currentSessionId, _setCurrentSessionId] = useState<string | null>(null);
+  // Sends one presence heartbeat now; set while the presence effect is live.
+  // (The heartbeat reads the open thread from currentSessionIdRef, below.)
+  const presenceNowRef = useRef<(() => void) | null>(null);
 
   // ── Thread read state ──
   // The backend has no per-thread read marker, so unread is derived client-side:
@@ -475,9 +479,18 @@ export function WorkspaceProvider({
         type,
         source: `human:${currentUser.id}`,
         target: 'core',
-        payload: { user_id: currentUser.id, user_name: currentUser.name, sender_type: 'human' },
+        payload: {
+          user_id: currentUser.id,
+          user_name: currentUser.name,
+          sender_type: 'human',
+          // The thread this tab has open (lib/active-thread.ts), for MCP clients.
+          active_thread: type === 'workspace.user.left'
+            ? null
+            : activeThreadPayload(currentSessionIdRef.current, sessionsRef.current),
+        },
         visibility: 'network',
       }).catch(() => {});
+    presenceNowRef.current = () => void sendPresence('workspace.user.heartbeat');
 
     const applyPresenceEvents = async () => {
       try {
@@ -545,12 +558,20 @@ export function WorkspaceProvider({
 
     return () => {
       cancelled = true;
+      presenceNowRef.current = null;
       clearInterval(heartbeat);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('beforeunload', handlePageHide);
       void sendPresence('workspace.user.left');
     };
   }, [currentUser.id, currentUser.name]);
+
+  // Publish a thread switch right away instead of at the next 15 s heartbeat,
+  // debounced so clicking through several threads sends one event.
+  useEffect(() => {
+    const t = window.setTimeout(() => presenceNowRef.current?.(), 300);
+    return () => window.clearTimeout(t);
+  }, [currentSessionId]);
 
   const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
     if (!isStatus || /stopped|stopping failed/i.test(content)) {
