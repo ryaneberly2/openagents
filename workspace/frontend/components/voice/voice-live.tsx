@@ -19,6 +19,11 @@ const POPOUT_FEATURES = 'popup=yes,width=520,height=760';
 interface VoiceLiveProps {
   /** Rail is expanded: show a labelled pill instead of an icon-only button. */
   showLabels: boolean;
+  /**
+   * Mobile header bar: icons side by side (the collapsed rail stacks them),
+   * tooltips below, and the pane kept clear of the bottom tab bar.
+   */
+  inline?: boolean;
 }
 
 /**
@@ -30,7 +35,8 @@ interface VoiceLiveProps {
  *    which can itself be moved to a real window. The session survives showing
  *    and hiding the pane; only Live (or the window closing) ends it.
  */
-export function VoiceLive({ showLabels }: VoiceLiveProps) {
+export function VoiceLive({ showLabels, inline = false }: VoiceLiveProps) {
+  const tipSide = inline ? 'bottom' : 'right';
   const [mounted, setMounted] = React.useState(false);
   const [paneOpen, setPaneOpen] = React.useState(false);
   const [live, setLive] = React.useState(false);
@@ -151,7 +157,7 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
           <Mic className={cn('size-4', speaking && 'animate-pulse')} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="right">{live ? 'End live voice' : 'Go live'}</TooltipContent>
+      <TooltipContent side={tipSide}>{live ? 'End live voice' : 'Go live'}</TooltipContent>
     </Tooltip>
   );
 
@@ -170,7 +176,7 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
           <AppWindow className="size-4" />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="right">Voice console</TooltipContent>
+      <TooltipContent side={tipSide}>Voice console</TooltipContent>
     </Tooltip>
   );
 
@@ -181,8 +187,14 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
           aria-label="Live voice"
           aria-hidden={!paneOpen}
           className={cn(
-            'fixed z-50 flex h-[min(680px,80vh)] w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl',
-            paneOpen ? 'right-4 bottom-4' : 'pointer-events-none top-0 left-[-10000px]',
+            'fixed z-50 flex w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl',
+            // Mobile: sit between the fixed header and the bottom tab bar (both z-50) instead of covering them.
+            inline
+              ? 'h-[min(680px,calc(100dvh-var(--header-height-mobile)-5rem))]'
+              : 'h-[min(680px,80vh)]',
+            paneOpen
+              ? inline ? 'right-4 bottom-16' : 'right-4 bottom-4'
+              : 'pointer-events-none top-0 left-[-10000px]',
           )}
         >
           <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
@@ -213,7 +225,7 @@ export function VoiceLive({ showLabels }: VoiceLiveProps) {
 
   return (
     <>
-      <div className={cn('flex items-center gap-0.5', !showLabels && 'flex-col')}>
+      <div className={cn('flex items-center gap-0.5', !showLabels && !inline && 'flex-col')}>
         {liveButton}
         {paneButton}
       </div>

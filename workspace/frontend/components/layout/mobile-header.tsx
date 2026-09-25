@@ -24,6 +24,8 @@ import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { desktopHost } from '@/lib/desktop-host';
+import { VoiceLive } from '@/components/voice/voice-live';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -110,6 +112,12 @@ export function MobileHeader() {
               threads list itself, where the new thread will show up — a global
               button here fired from Files or Browser and yanked you elsewhere. */}
           <div className="flex items-center gap-0.5 shrink-0 text-muted-foreground">
+            {/* Live voice + console pane, same control as the desktop rail's
+                (nav-rail.tsx). Only one of the two layouts is ever mounted
+                (wrapper.tsx), so there is never a second voice session. The
+                console is a web-served sibling app at /voice/ — the desktop
+                shell has no route to it. */}
+            {!desktopHost() && <VoiceLive showLabels={false} inline />}
             <NotificationsMenu />
             <UserMenu />
           </div>
