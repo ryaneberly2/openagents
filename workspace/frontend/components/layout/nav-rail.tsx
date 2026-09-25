@@ -39,6 +39,7 @@ import { QrcodeMenu } from './qrcode-menu';
 import { UserMenu } from './user-menu';
 import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 import { VoiceLive } from '@/components/voice/voice-live';
+import { ReachabilityMark } from './reachability-mark';
 
 interface RailItem {
   mode: ViewMode;
@@ -279,25 +280,29 @@ export function NavRail() {
             showLabels ? 'w-full gap-2 px-1' : 'flex-col justify-center gap-2',
           )}
         >
-          <span
-            className="flex size-8 shrink-0 items-center justify-center"
-            title={workspaceLabel}
-          >
-            <Image
-              src="/logo-black.png"
-              alt="OpenAgents"
-              width={32}
-              height={32}
-              className="size-full object-contain dark:hidden"
-            />
-            <Image
-              src="/logo-white.png"
-              alt="OpenAgents"
-              width={32}
-              height={32}
-              className="hidden size-full object-contain dark:block"
-            />
-          </span>
+          {/* Goes red (ring + dot, click reloads) when the workspace is
+              unreachable or its sign-in has expired — see reachability.ts. */}
+          <ReachabilityMark className="shrink-0">
+            <span
+              className="flex size-8 shrink-0 items-center justify-center"
+              title={workspaceLabel}
+            >
+              <Image
+                src="/logo-black.png"
+                alt="OpenAgents"
+                width={32}
+                height={32}
+                className="size-full object-contain dark:hidden"
+              />
+              <Image
+                src="/logo-white.png"
+                alt="OpenAgents"
+                width={32}
+                height={32}
+                className="hidden size-full object-contain dark:block"
+              />
+            </span>
+          </ReachabilityMark>
 
           {showLabels && (
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">

@@ -26,6 +26,7 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { desktopHost } from '@/lib/desktop-host';
 import { VoiceLive } from '@/components/voice/voice-live';
+import { ReachabilityMark } from './reachability-mark';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -98,10 +99,12 @@ export function MobileHeader() {
               </SheetContent>
             </Sheet>
 
-            <div className="size-7 shrink-0">
-              <Image src="/logo-black.png" alt="OpenAgents" width={28} height={28} className="size-full object-contain dark:hidden" />
-              <Image src="/logo-white.png" alt="OpenAgents" width={28} height={28} className="size-full object-contain hidden dark:block" />
-            </div>
+            <ReachabilityMark className="shrink-0">
+              <div className="size-7 shrink-0">
+                <Image src="/logo-black.png" alt="OpenAgents" width={28} height={28} className="size-full object-contain dark:hidden" />
+                <Image src="/logo-white.png" alt="OpenAgents" width={28} height={28} className="size-full object-contain hidden dark:block" />
+              </div>
+            </ReachabilityMark>
 
             <span className="text-sm font-medium truncate">
               {workspace?.name || t('nav.workspaceFallback')}
