@@ -556,6 +556,8 @@ class WorkspaceClient {
       status: a.status || 'offline',
       enabledSkills: a.enabled_skills || null,
       model: a.model || null,
+      agentType: a.agent_type || null,
+      description: a.description || null,
     }));
   }
 

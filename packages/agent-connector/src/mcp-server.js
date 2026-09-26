@@ -621,10 +621,17 @@ class McpServer {
         const data = await this.ws.getAgents(this.workspaceId, this.token);
         const agents = data.agents || data || [];
         if (!agents.length) return text('No agents connected.');
-        const lines = agents.map((a) =>
-          `- ${a.name} (${a.type || 'unknown'}) — ${a.status || 'unknown'}${a.role ? ` [${a.role}]` : ''}`
-        );
-        return text(lines.join('\n'));
+        // getAgents() returns {agentName, displayName, agentType, model, description,
+        // role, status} — this used to read a.name / a.type, which it never sets,
+        // so every agent listed as "undefined (unknown)".
+        const lines = agents.map((a) => {
+          const name = a.agentName || a.name;
+          const shown = a.displayName && a.displayName !== name ? ` "${a.displayName}"` : '';
+          const kind = [a.agentType || a.type, a.model].filter(Boolean).join(', ') || 'unknown type';
+          const desc = a.description ? `: ${String(a.description).split('\n')[0].slice(0, 120)}` : '';
+          return `- ${name}${shown} (${kind}) — ${a.status || 'unknown'}${a.role ? ` [${a.role}]` : ''}${desc}`;
+        });
+        return text('@mention an agent by its name (first word), not the quoted display name.\n' + lines.join('\n'));
       }
 
       case 'workspace_status': {
