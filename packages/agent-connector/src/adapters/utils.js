@@ -131,8 +131,27 @@ function formatAttachmentsForPrompt(
  * Lived as a private static on two adapters before claude needed it as well —
  * a third identical copy is one copy too many for a security-relevant rule.
  */
-function redactSecrets(s) {
+// The workspace token as a SHELL EXPRESSION, for generated skill/prompt text
+// that agents copy into commands. The token itself must never be written into
+// such text: agents paste the examples verbatim, and every Bash call they make
+// is echoed to the workspace channel as a status line — so a literal token in
+// a skill ends up in chat (2026-09-28). Adapters that use this must put the
+// token in the child's environment under WORKSPACE_TOKEN_ENV (deepseek.js does).
+const WORKSPACE_TOKEN_ENV = 'OPENAGENTS_WORKSPACE_TOKEN';
+function workspaceTokenExpr(isWindows = process.platform === 'win32') {
+  return isWindows ? `$env:${WORKSPACE_TOKEN_ENV}` : `$${WORKSPACE_TOKEN_ENV}`;
+}
+
+/**
+ * Mask secrets in text before it is logged or posted to a channel.
+ * `literals`: exact secret values the caller knows (e.g. its own workspace
+ * token) — masked wherever they appear, whatever surrounds them.
+ */
+function redactSecrets(s, literals = []) {
   let out = String(s == null ? '' : s);
+  for (const lit of literals || []) {
+    if (typeof lit === 'string' && lit.length >= 8) out = out.split(lit).join('[REDACTED]');
+  }
   out = out
     .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
     .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
@@ -142,6 +161,8 @@ function redactSecrets(s) {
     .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
       (m, k, sep) => `${k}${sep}[REDACTED]`)
     .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
+    // sqlcmd / bcp take the password as a flag: `-P secret`.
+    .replace(/(\b(?:sqlcmd|bcp)\b[^\n]*?\s-P\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[REDACTED]')
     .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
   return out;
 }
@@ -151,4 +172,6 @@ module.exports = {
   generateSessionTitle,
   formatAttachmentsForPrompt,
   redactSecrets,
+  WORKSPACE_TOKEN_ENV,
+  workspaceTokenExpr,
 };

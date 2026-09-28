@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets, WORKSPACE_TOKEN_ENV, workspaceTokenExpr } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -532,7 +532,10 @@ class ClaudeAdapter extends BaseAdapter {
     const skillContent = buildClaudeSkillMd({
       endpoint: this.endpoint,
       workspaceId: this.workspaceId,
-      token: this.token,
+      // A shell expression, never the token: the agent copies these curl
+      // examples into Bash, and Bash calls are echoed to the channel. The
+      // child env carries the value (see the spawn below).
+      token: workspaceTokenExpr(IS_WINDOWS),
       agentName: this.agentName,
       channelName,
       disabledModules: this.disabledModules,
@@ -879,6 +882,12 @@ class ClaudeAdapter extends BaseAdapter {
             } else {
               inputPreview = String(block.input || '').slice(0, 150);
             }
+            // Every tool call is posted to the channel. The command branch used
+            // to be the only one not truncated, so full command lines — tokens,
+            // PATs, connection strings included — went to chat verbatim
+            // (2026-09-28). Mask secrets (and this agent's own token), then cap.
+            inputPreview = redactSecrets(inputPreview, [this.token]);
+            if (inputPreview.length > 300) inputPreview = inputPreview.slice(0, 300) + '…';
             await this.sendStatus(pp.msgChannel, `${toolName} › ${inputPreview}`);
             pp.everPostedAnything = true;
           }
@@ -1244,6 +1253,9 @@ class ClaudeAdapter extends BaseAdapter {
     let cmd;
 
     const cleanEnv = ClaudeAdapter._buildChildEnv(this.agentEnv || process.env);
+    // The workspace skill's examples reference $OPENAGENTS_WORKSPACE_TOKEN
+    // rather than the literal token (see _buildSkillsCmd); supply the value.
+    if (this.token) cleanEnv[WORKSPACE_TOKEN_ENV] = this.token;
 
     // Spawn a persistent process and send the first message via stdin
     let effectiveContent = content;

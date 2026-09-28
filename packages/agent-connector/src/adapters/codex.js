@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets } = require('./utils');
+const { redactSecrets, WORKSPACE_TOKEN_ENV, workspaceTokenExpr } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -181,7 +181,10 @@ class CodexAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName,
       endpoint: this.endpoint,
-      token: this.token,
+      // A shell expression, never the token — the prompt's curl examples get
+      // run as shell commands, which are echoed to the channel. The value is in
+      // the child env (_handleViaSubprocess).
+      token: workspaceTokenExpr(IS_WINDOWS),
       mode: this._mode,
       model: this.modelLabel(),
       disabledModules: this.disabledModules,
@@ -290,6 +293,8 @@ class CodexAdapter extends BaseAdapter {
 
   async _handleViaSubprocess(content, msgChannel) {
     const env = { ...(this.agentEnv || process.env) };
+    // The system context's examples reference $OPENAGENTS_WORKSPACE_TOKEN.
+    if (this.token) env[WORKSPACE_TOKEN_ENV] = this.token;
 
     // Set model via env if configured
     if (this._directModel) env.CODEX_MODEL = this._directModel;
@@ -405,7 +410,8 @@ class CodexAdapter extends BaseAdapter {
             try { await this.sendThinking(msgChannel, item.text); } catch {}
           } else if (item.type === 'command_execution') {
             hasToolUseSinceLastText = true;
-            const cmdText = (item.command || '').slice(0, 200);
+            // Posted to the channel: mask secrets and this agent's own token first.
+            const cmdText = redactSecrets(item.command || '', [this.token]).slice(0, 200);
             const exitCode = item.exit_code;
             const output = (item.output || '').slice(0, 500);
             let status = `**Running:** \`${cmdText}\``;

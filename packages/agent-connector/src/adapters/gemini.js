@@ -19,7 +19,7 @@ const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -410,6 +410,10 @@ class GeminiAdapter extends BaseAdapter {
                 else if (inp.query) inputPreview = inp.query;
                 else inputPreview = JSON.stringify(inp).slice(0, 150);
               }
+              // Posted to the channel: mask secrets, then cap (the command
+              // branch was never truncated — same leak as claude.js).
+              inputPreview = redactSecrets(inputPreview, [this.token]);
+              if (inputPreview.length > 300) inputPreview = inputPreview.slice(0, 300) + '…';
               await this.sendStatus(msgChannel, `${toolName} › ${inputPreview}`);
             } else if (eventType === 'result') {
                if (event.session_id) {

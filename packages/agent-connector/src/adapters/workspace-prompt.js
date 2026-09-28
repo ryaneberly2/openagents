@@ -271,7 +271,13 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     `when the user asks to use the workspace browser — use \`${execTool}\` + \`curl\` instead.\n` +
     '- The workspace browser is a *shared* browser visible to all users and agents.\n\n' +
     '**Auth header** (include on every request):\n' +
-    `\`X-Workspace-Token: ${token}\`\n`
+    `\`X-Workspace-Token: ${token}\`\n` +
+    // When the caller passes a shell expression (claude/codex/deepseek do),
+    // say why: commands are echoed to the channel, so a pasted literal leaks.
+    (/^\$/.test(String(token))
+      ? `\nKeep \`${token}\` exactly as written — it is set in your environment. Never paste the token's value ` +
+        'into a command, a file or a message: your shell commands are shown in the channel.\n'
+      : '')
   );
 
   // Files
