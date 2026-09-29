@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { SectionHeader } from '@/components/settings/section-chrome';
 import { useT } from '@/lib/i18n';
+import { UI_COMMANDS_KEY } from '@/lib/ui-commands';
 
 /**
  * This-browser-only preferences. They live in localStorage under the same keys
@@ -19,13 +20,22 @@ export default function PreferencesSettingsPage() {
   const t = useT();
   const [sound, setSound] = useState(false);
   const [split, setSplit] = useState(false);
+  const [agentControl, setAgentControl] = useState(true);
 
   useEffect(() => {
     try {
       setSound(localStorage.getItem(SOUND_KEY) === 'true');
       setSplit(localStorage.getItem(SPLIT_KEY) === '1');
+      setAgentControl(localStorage.getItem(UI_COMMANDS_KEY) !== 'false');
     } catch { /* storage unavailable */ }
   }, []);
+
+  // Read on every command (components/layout/use-ui-commands.ts), so this
+  // applies immediately, in every tab of this browser.
+  const toggleAgentControl = (v: boolean) => {
+    setAgentControl(v);
+    try { localStorage.setItem(UI_COMMANDS_KEY, String(v)); } catch {}
+  };
 
   const toggleSound = (v: boolean) => {
     setSound(v);
@@ -50,6 +60,14 @@ export default function PreferencesSettingsPage() {
           <p className="text-xs text-muted-foreground">{t('settings.notificationSoundHint')}</p>
         </div>
         <Switch checked={sound} onCheckedChange={toggleSound} size="sm" />
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
+        <div className="space-y-0.5">
+          <Label>{t('settings.agentControl')}</Label>
+          <p className="text-xs text-muted-foreground">{t('settings.agentControlHint')}</p>
+        </div>
+        <Switch checked={agentControl} onCheckedChange={toggleAgentControl} size="sm" />
       </div>
 
       <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">

@@ -4,6 +4,7 @@ import React, { createContext, useContext, useCallback, useEffect, useMemo, useR
 import { toast } from 'sonner';
 import { workspaceApi } from './api';
 import { activeThreadPayload, activeViewPayload, type ActiveView } from './active-thread';
+import { getTabId, uiCommandsEnabled } from './ui-commands';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
@@ -501,6 +502,10 @@ export function WorkspaceProvider({
             ? null
             : activeThreadPayload(currentSessionIdRef.current, sessionsRef.current),
           active_view: type === 'workspace.user.left' ? null : activeViewRef.current(),
+          // Which tab this is, and whether it takes UI commands (lib/ui-commands.ts),
+          // so an MCP client can address one tab and know it will answer.
+          tab_id: getTabId(),
+          ui_commands: uiCommandsEnabled(),
         },
         visibility: 'network',
       }).catch(() => {});

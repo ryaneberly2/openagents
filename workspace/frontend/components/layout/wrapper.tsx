@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
+import { useUiCommands } from './use-ui-commands';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
@@ -77,6 +78,8 @@ export function Wrapper() {
   // The presence heartbeat lives in WorkspaceProvider, outside LayoutProvider,
   // so the current view is reported up from here (lib/active-thread.ts).
   useEffect(() => { reportViewMode(viewMode); }, [viewMode, reportViewMode]);
+  // ...and MCP clients can ask this tab to open a thread or file (lib/ui-commands.ts).
+  useUiCommands();
 
   // Auto-dismiss the docked agent-profile panel when the user navigates away:
   // switching to another thread (incl. starting a new chat) or to another view

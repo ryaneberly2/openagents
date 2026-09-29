@@ -775,6 +775,8 @@ export const messages = {
     monitorModeHint: 'Show a 2x3 grid overview of recent threads instead of the thread list.',
     notificationSound: 'Notification Sound',
     notificationSoundHint: 'Play a sound when an agent completes a task.',
+    agentControl: 'Let agents open things in this browser',
+    agentControlHint: 'Agents using the workspace MCP can open a thread or file, or show a notice, in your open workspace tab. Each one shows who asked. They cannot send, delete or change anything.',
     splitBrowser: 'Split Browser View',
     splitBrowserHint: 'Show browser tab side-by-side with chat when viewing threads.',
     collaborators: 'Collaborators',

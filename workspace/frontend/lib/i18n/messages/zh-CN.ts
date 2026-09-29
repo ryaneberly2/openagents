@@ -760,6 +760,8 @@ export const messages: Messages = {
     monitorModeHint: '以 2x3 网格概览最近的会话,替代会话列表。',
     notificationSound: '通知提示音',
     notificationSoundHint: '智能体完成任务时播放提示音。',
+    agentControl: '允许智能体在此浏览器中打开内容',
+    agentControlHint: '通过工作区 MCP 连接的智能体可以在你打开的工作区标签页中打开会话或文件,或显示通知,并会注明是谁发起的。它们无法发送、删除或更改任何内容。',
     splitBrowser: '分屏浏览器视图',
     splitBrowserHint: '查看会话时,将浏览器标签页与聊天并排显示。',
     collaborators: '协作者',
