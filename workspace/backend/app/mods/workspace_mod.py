@@ -118,7 +118,13 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
         existing.last_heartbeat = now
         existing.session_id = new_session_id
         existing.session_started_at = now
-        if agent_type and not existing.agent_type:
+        # Take the joining agent's type when it changed, not only when it was
+        # empty: an agent re-created under the same name with another engine
+        # (atlas: claude -> codex, 2026-10-02) otherwise keeps its first type
+        # in /v1/discover and the UI forever. A cloud:* type is the server's
+        # own record of a hosted agent and is never overwritten by a join.
+        if agent_type and agent_type != existing.agent_type \
+                and not (existing.agent_type or "").startswith("cloud:"):
             existing.agent_type = agent_type
         if server_host:
             existing.server_host = server_host
